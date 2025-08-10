@@ -1,0 +1,813 @@
+name: Deploy Production Environment
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'environments/prod/**'
+      - 'modules/**'
+      - 'terragrunt.hcl'
+      - '.github/workflows/deploy-prod.yml'
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'Component to deploy (all, cognito, s3-website, s3-content, cloudfront, route53-acm)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - cognito
+          - s3-website
+          - s3-content
+          - cloudfront
+          - route53-acm
+          - monitoring
+      action:
+        description: 'Action to perform'
+        required: false
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      skip_approval:
+        description: 'Skip manual approval (emergency deployments only)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: us-east-1
+  TERRAGRUNT_VERSION: 0.55.1
+  TERRAFORM_VERSION: 1.6.6
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  validate:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      validation-status: ${{ steps.validation.outputs.status }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Validate Terraform syntax
+        id: validation
+        run: |
+          echo "status=success" >> $GITHUB_OUTPUT
+          find modules -name "*.tf" -exec dirname {} \; | sort -u | while read dir; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false
+            terraform validate
+            cd - > /dev/null
+          done
+
+      - name: Validate Terragrunt configuration
+        run: |
+          cd environments/prod
+          terragrunt validate-inputs --terragrunt-non-interactive
+
+      - name: Notify validation failure
+        if: failure()
+        run: |
+          echo "❌ Production validation failed!"
+          echo "status=failed" >> $GITHUB_OUTPUT
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"🚨 Production Validation Failed\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nWorkflow: ${{ github.workflow }}"}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      security-status: ${{ steps.security.outputs.status }}
+      critical-issues: ${{ steps.security.outputs.critical_issues }}
+      high-issues: ${{ steps.security.outputs.high_issues }}
+      medium-issues: ${{ steps.security.outputs.medium_issues }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        run: |
+          pip install checkov==3.1.34
+          checkov --version
+
+      - name: Run comprehensive Checkov scan
+        id: security
+        run: |
+          echo "Running comprehensive security scan for production environment..."
+          
+          # Create results directory
+          mkdir -p security-scan-results
+          
+          # Run Checkov with strict production settings
+          set +e
+          checkov \
+            --config-file .checkov.yml \
+            --directory . \
+            --output cli \
+            --output sarif \
+            --output json \
+            --output junitxml \
+            --output-file-path security-scan-results/ \
+            --baseline .checkov.baseline \
+            --skip-check CKV_AWS_144 \
+            --hard-fail-on CKV_AWS_21,CKV_AWS_40,CKV_AWS_62,CKV_AWS_53,CKV_AWS_54,CKV_AWS_55,CKV_AWS_56 \
+            2>&1 | tee security-scan-results/checkov-output.log
+          
+          CHECKOV_EXIT_CODE=$?
+          
+          # Parse results for detailed analysis
+          if [ -f "security-scan-results/results_json.json" ]; then
+            CRITICAL_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "CRITICAL")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+            HIGH_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "HIGH")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+            MEDIUM_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "MEDIUM")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+            TOTAL_FAILED=$(jq '.results.failed_checks | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+            TOTAL_PASSED=$(jq '.results.passed_checks | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+            
+            # Extract specific failed checks for reporting
+            jq -r '.results.failed_checks[] | select(.severity == "CRITICAL" or .severity == "HIGH") | "\(.severity): \(.check_id) - \(.check_name) (\(.file_path))"' security-scan-results/results_json.json > security-scan-results/critical-high-issues.txt 2>/dev/null || echo "No critical/high issues" > security-scan-results/critical-high-issues.txt
+          else
+            CRITICAL_COUNT=0
+            HIGH_COUNT=0
+            MEDIUM_COUNT=0
+            TOTAL_FAILED=0
+            TOTAL_PASSED=0
+            echo "No critical/high issues" > security-scan-results/critical-high-issues.txt
+          fi
+          
+          echo "critical_issues=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+          echo "high_issues=$HIGH_COUNT" >> $GITHUB_OUTPUT
+          echo "medium_issues=$MEDIUM_COUNT" >> $GITHUB_OUTPUT
+          echo "total_failed=$TOTAL_FAILED" >> $GITHUB_OUTPUT
+          echo "total_passed=$TOTAL_PASSED" >> $GITHUB_OUTPUT
+          
+          # Production has stricter requirements - fail on HIGH or CRITICAL
+          if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ Critical or High severity security issues found"
+            echo "Critical: $CRITICAL_COUNT, High: $HIGH_COUNT"
+            exit 1
+          else
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "✅ No critical or high severity security issues found"
+          fi
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: security-scan-results/results_sarif.sarif
+          category: checkov-prod-deployment
+
+      - name: Upload security scan artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prod-security-scan-${{ github.sha }}
+          path: security-scan-results/
+          retention-days: 90
+
+      - name: Generate security report for production
+        if: always()
+        run: |
+          cat > security-scan-results/PRODUCTION_SECURITY_REPORT.md << 'EOF'
+          # Production Security Scan Report
+          
+          **Generated**: $(date)
+          **Environment**: Production
+          **Commit**: ${{ github.sha }}
+          **Actor**: ${{ github.actor }}
+          
+          ## Scan Results
+          - **Status**: ${{ steps.security.outputs.status }}
+          - **Total Passed**: ${{ steps.security.outputs.total_passed }}
+          - **Total Failed**: ${{ steps.security.outputs.total_failed }}
+          - **Critical Issues**: ${{ steps.security.outputs.critical_issues }}
+          - **High Issues**: ${{ steps.security.outputs.high_issues }}
+          - **Medium Issues**: ${{ steps.security.outputs.medium_issues }}
+          
+          ## Critical and High Severity Issues
+          $(cat security-scan-results/critical-high-issues.txt)
+          
+          ## Production Security Requirements
+          - Zero tolerance for CRITICAL severity issues
+          - Zero tolerance for HIGH severity issues
+          - MEDIUM severity issues require review but don't block deployment
+          - All security exceptions must be pre-approved in baseline
+          
+          ## Next Steps
+          ${{ steps.security.outputs.status == 'failed' && '❌ **DEPLOYMENT BLOCKED** - Address all critical and high severity issues before proceeding' || '✅ **SECURITY APPROVED** - Ready for production deployment' }}
+          EOF
+
+      - name: Security scan bypass check (Emergency Only)
+        id: bypass-check
+        if: steps.security.outputs.status == 'failed'
+        run: |
+          # Production bypass requires explicit approval
+          BYPASS_REQUESTED=false
+          BYPASS_APPROVED=false
+          
+          # Check for emergency bypass in commit message
+          if echo "${{ github.event.head_commit.message }}" | grep -i "\[emergency-security-bypass\]"; then
+            echo "Emergency security bypass requested in commit message"
+            BYPASS_REQUESTED=true
+            
+            # In a real implementation, this would check for additional approvals
+            # For now, we'll require manual workflow dispatch with skip_approval
+            if [ "${{ github.event.inputs.skip_approval }}" = "true" ]; then
+              echo "⚠️ Emergency security bypass approved via manual workflow dispatch"
+              BYPASS_APPROVED=true
+            fi
+          fi
+          
+          echo "bypass_requested=$BYPASS_REQUESTED" >> $GITHUB_OUTPUT
+          echo "bypass_approved=$BYPASS_APPROVED" >> $GITHUB_OUTPUT
+          
+          if [ "$BYPASS_APPROVED" = true ]; then
+            echo "⚠️ EMERGENCY BYPASS ACTIVATED - Security issues will be ignored"
+            echo "This should only be used in critical situations and requires immediate follow-up"
+          fi
+
+      - name: Notify security scan failure
+        if: steps.security.outputs.status == 'failed' && steps.bypass-check.outputs.bypass_approved != 'true'
+        run: |
+          echo "❌ Production security scan failed!"
+          echo "Critical issues: ${{ steps.security.outputs.critical_issues }}"
+          echo "High issues: ${{ steps.security.outputs.high_issues }}"
+          echo "Medium issues: ${{ steps.security.outputs.medium_issues }}"
+          
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"🔒 Production Security Scan Failed\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nCritical: ${{ steps.security.outputs.critical_issues }}, High: ${{ steps.security.outputs.high_issues }}\nDeployment blocked - please review security findings."}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+          
+          echo "Production deployment blocked due to security issues"
+          exit 1
+
+      - name: Notify emergency bypass activation
+        if: steps.bypass-check.outputs.bypass_approved == 'true'
+        run: |
+          echo "⚠️ EMERGENCY SECURITY BYPASS ACTIVATED"
+          
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"🚨 EMERGENCY SECURITY BYPASS ACTIVATED\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nCritical: ${{ steps.security.outputs.critical_issues }}, High: ${{ steps.security.outputs.high_issues }}\n⚠️ IMMEDIATE SECURITY REVIEW REQUIRED ⚠️"}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+
+  backup-state:
+    name: Backup Current State
+    runs-on: ubuntu-latest
+    needs: [validate, security-scan]
+    if: |
+      needs.validate.outputs.validation-status == 'success' &&
+      needs.security-scan.outputs.security-status == 'passed'
+    outputs:
+      backup-timestamp: ${{ steps.backup.outputs.timestamp }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Backup Terraform state
+        id: backup
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          
+          # Get state bucket name from terragrunt config
+          cd environments/prod
+          STATE_BUCKET=$(grep -r "bucket.*=" . | head -1 | cut -d'"' -f2 || echo "")
+          
+          if [ -n "$STATE_BUCKET" ]; then
+            echo "Backing up state from bucket: $STATE_BUCKET"
+            
+            # Create backup directory in S3
+            aws s3 cp s3://$STATE_BUCKET/ s3://$STATE_BUCKET/backups/$TIMESTAMP/ --recursive --exclude "*" --include "*.tfstate"
+            
+            echo "✅ State backup completed with timestamp: $TIMESTAMP"
+          else
+            echo "⚠️ Could not determine state bucket, skipping backup"
+          fi
+
+  plan:
+    name: Terragrunt Plan
+    runs-on: ubuntu-latest
+    needs: [validate, security-scan, backup-state]
+    if: |
+      needs.validate.outputs.validation-status == 'success' &&
+      (needs.security-scan.outputs.security-status == 'passed' || needs.security-scan.outputs.bypass_approved == 'true')
+    environment: production-plan
+    outputs:
+      plan-exitcode: ${{ steps.plan.outputs.exitcode }}
+      plan-summary: ${{ steps.plan.outputs.summary }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Terragrunt Plan
+        id: plan
+        run: |
+          cd environments/prod
+          
+          # Determine components to plan
+          if [ "${{ github.event.inputs.component }}" = "all" ] || [ -z "${{ github.event.inputs.component }}" ]; then
+            COMPONENTS="cognito s3-website s3-content cloudfront route53-acm monitoring"
+          else
+            COMPONENTS="${{ github.event.inputs.component }}"
+          fi
+          
+          CHANGES_DETECTED=false
+          PLAN_SUMMARY=""
+          
+          # Initialize and plan each component
+          for component in $COMPONENTS; do
+            if [ -d "$component" ]; then
+              echo "Planning $component..."
+              cd "$component"
+              
+              # Initialize with retry logic
+              for i in {1..3}; do
+                if terragrunt init --terragrunt-non-interactive; then
+                  break
+                elif [ $i -eq 3 ]; then
+                  echo "Failed to initialize $component after 3 attempts"
+                  exit 1
+                else
+                  echo "Initialization attempt $i failed, retrying..."
+                  sleep 10
+                fi
+              done
+              
+              # Generate plan with detailed output
+              if ! terragrunt plan -detailed-exitcode --terragrunt-non-interactive -out=tfplan; then
+                EXITCODE=$?
+                if [ $EXITCODE -eq 2 ]; then
+                  echo "Changes detected in $component"
+                  CHANGES_DETECTED=true
+                  PLAN_SUMMARY="$PLAN_SUMMARY\n✅ $component: Changes detected"
+                elif [ $EXITCODE -eq 1 ]; then
+                  echo "Error in planning $component"
+                  PLAN_SUMMARY="$PLAN_SUMMARY\n❌ $component: Planning error"
+                  exit 1
+                fi
+              else
+                echo "No changes detected in $component"
+                PLAN_SUMMARY="$PLAN_SUMMARY\n✅ $component: No changes"
+              fi
+              
+              cd ..
+            else
+              echo "Component $component not found, skipping..."
+              PLAN_SUMMARY="$PLAN_SUMMARY\n⚠️ $component: Not found"
+            fi
+          done
+          
+          if [ "$CHANGES_DETECTED" = true ]; then
+            echo "exitcode=2" >> $GITHUB_OUTPUT
+          else
+            echo "exitcode=0" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "summary<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$PLAN_SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        continue-on-error: false
+
+      - name: Save plan artifacts
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          cd environments/prod
+          
+          # Create plan artifacts directory
+          mkdir -p /tmp/plan-artifacts
+          
+          # Copy plan files
+          find . -name "tfplan" -exec cp {} /tmp/plan-artifacts/ \;
+          
+          # Create plan summary
+          echo "Production Deployment Plan Summary" > /tmp/plan-artifacts/summary.txt
+          echo "Generated: $(date)" >> /tmp/plan-artifacts/summary.txt
+          echo "Commit: ${{ github.sha }}" >> /tmp/plan-artifacts/summary.txt
+          echo "Actor: ${{ github.actor }}" >> /tmp/plan-artifacts/summary.txt
+          echo "" >> /tmp/plan-artifacts/summary.txt
+          echo "${{ steps.plan.outputs.summary }}" >> /tmp/plan-artifacts/summary.txt
+
+      - name: Upload plan artifacts
+        if: steps.plan.outputs.exitcode == '2'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-plan-${{ github.sha }}
+          path: /tmp/plan-artifacts/
+          retention-days: 30
+
+      - name: Notify plan completion
+        run: |
+          if [ "${{ steps.plan.outputs.exitcode }}" = "2" ]; then
+            echo "📋 Production plan completed - changes detected"
+            if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"📋 Production Plan Ready for Review\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nChanges detected - manual approval required for deployment."}' \
+                ${{ env.SLACK_WEBHOOK_URL }}
+            fi
+          else
+            echo "✅ Production plan completed - no changes detected"
+          fi
+
+  approval:
+    name: Manual Approval
+    runs-on: ubuntu-latest
+    needs: plan
+    if: |
+      needs.plan.outputs.plan-exitcode == '2' && 
+      (github.event.inputs.action == 'apply' || github.event_name == 'push') &&
+      github.event.inputs.skip_approval != 'true'
+    environment: production-approval
+    steps:
+      - name: Request manual approval
+        run: |
+          echo "🔒 Manual approval required for production deployment"
+          echo "Plan Summary:"
+          echo "${{ needs.plan.outputs.plan-summary }}"
+          echo ""
+          echo "Please review the plan artifacts and approve this deployment."
+
+  apply:
+    name: Terragrunt Apply
+    runs-on: ubuntu-latest
+    needs: [plan, backup-state, approval]
+    if: |
+      always() &&
+      needs.plan.outputs.plan-exitcode == '2' &&
+      (needs.approval.result == 'success' || github.event.inputs.skip_approval == 'true') &&
+      (github.event.inputs.action == 'apply' || github.event_name == 'push')
+    environment: production
+    outputs:
+      apply-status: ${{ steps.apply.outputs.status }}
+      rollback-needed: ${{ steps.apply.outputs.rollback_needed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Download plan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: production-plan-${{ github.sha }}
+          path: /tmp/plan-artifacts/
+
+      - name: Notify deployment start
+        run: |
+          echo "🚀 Starting production deployment..."
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"🚀 Production Deployment Started\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nBackup timestamp: ${{ needs.backup-state.outputs.backup-timestamp }}"}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+
+      - name: Terragrunt Apply
+        id: apply
+        run: |
+          cd environments/prod
+          
+          # Determine components to apply
+          if [ "${{ github.event.inputs.component }}" = "all" ] || [ -z "${{ github.event.inputs.component }}" ]; then
+            COMPONENTS="cognito s3-website s3-content route53-acm cloudfront monitoring"
+          else
+            COMPONENTS="${{ github.event.inputs.component }}"
+          fi
+          
+          FAILED_COMPONENTS=""
+          SUCCESSFUL_COMPONENTS=""
+          
+          # Apply each component with dependency order
+          for component in $COMPONENTS; do
+            if [ -d "$component" ]; then
+              echo "Applying $component..."
+              cd "$component"
+              
+              # Apply with retry logic and timeout
+              timeout 1800 bash -c '
+                for i in {1..2}; do
+                  if terragrunt apply --terragrunt-non-interactive -auto-approve; then
+                    echo "Successfully applied '$component'"
+                    exit 0
+                  elif [ $i -eq 2 ]; then
+                    echo "Failed to apply '$component' after 2 attempts"
+                    exit 1
+                  else
+                    echo "Apply attempt $i failed, retrying..."
+                    sleep 30
+                  fi
+                done
+              '
+              
+              if [ $? -eq 0 ]; then
+                SUCCESSFUL_COMPONENTS="$SUCCESSFUL_COMPONENTS $component"
+              else
+                FAILED_COMPONENTS="$FAILED_COMPONENTS $component"
+                echo "rollback_needed=true" >> $GITHUB_OUTPUT
+                echo "status=failed" >> $GITHUB_OUTPUT
+                break
+              fi
+              
+              cd ..
+            else
+              echo "Component $component not found, skipping..."
+            fi
+          done
+          
+          if [ -z "$FAILED_COMPONENTS" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "rollback_needed=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Successful components: $SUCCESSFUL_COMPONENTS"
+          echo "Failed components: $FAILED_COMPONENTS"
+        continue-on-error: true
+
+      - name: Post-deployment verification
+        id: verify
+        if: steps.apply.outputs.status == 'success'
+        run: |
+          cd environments/prod
+          
+          echo "Verifying deployment..."
+          
+          # Check if resources were created successfully
+          VERIFICATION_FAILED=false
+          
+          for component in cognito s3-website s3-content cloudfront route53-acm monitoring; do
+            if [ -d "$component" ]; then
+              cd "$component"
+              echo "Verifying $component outputs..."
+              
+              if ! terragrunt output --terragrunt-non-interactive; then
+                echo "❌ Verification failed for $component"
+                VERIFICATION_FAILED=true
+              else
+                echo "✅ Verification passed for $component"
+              fi
+              
+              cd ..
+            fi
+          done
+          
+          if [ "$VERIFICATION_FAILED" = true ]; then
+            echo "verification_status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "verification_status=passed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify deployment success
+        if: steps.apply.outputs.status == 'success' && steps.verify.outputs.verification_status == 'passed'
+        run: |
+          echo "✅ Production environment deployment completed successfully!"
+          echo "Environment: Production"
+          echo "Components: ${{ github.event.inputs.component || 'all' }}"
+          echo "Commit: ${{ github.sha }}"
+          
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"✅ Production Deployment Successful\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nComponents: ${{ github.event.inputs.component || 'all' }}\nAll verification checks passed."}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+
+      - name: Notify deployment failure
+        if: steps.apply.outputs.status == 'failed' || steps.verify.outputs.verification_status == 'failed'
+        run: |
+          echo "❌ Production environment deployment failed!"
+          echo "Rollback may be required. Check logs for details."
+          
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"❌ Production Deployment Failed\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nRollback may be required. Please check logs and consider manual intervention."}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [apply, backup-state]
+    if: |
+      always() &&
+      needs.apply.outputs.rollback-needed == 'true' &&
+      needs.backup-state.outputs.backup-timestamp != ''
+    environment: production-rollback
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Notify rollback start
+        run: |
+          echo "🔄 Starting production rollback..."
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"🔄 Production Rollback Started\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nRestoring from backup: ${{ needs.backup-state.outputs.backup-timestamp }}"}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+
+      - name: Restore Terraform state
+        id: restore
+        run: |
+          cd environments/prod
+          
+          # Get state bucket name
+          STATE_BUCKET=$(grep -r "bucket.*=" . | head -1 | cut -d'"' -f2 || echo "")
+          BACKUP_TIMESTAMP="${{ needs.backup-state.outputs.backup-timestamp }}"
+          
+          if [ -n "$STATE_BUCKET" ] && [ -n "$BACKUP_TIMESTAMP" ]; then
+            echo "Restoring state from backup timestamp: $BACKUP_TIMESTAMP"
+            
+            # Restore state files from backup
+            aws s3 cp s3://$STATE_BUCKET/backups/$BACKUP_TIMESTAMP/ s3://$STATE_BUCKET/ --recursive --exclude "*" --include "*.tfstate"
+            
+            echo "✅ State restoration completed"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Could not restore state - missing bucket or timestamp"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Refresh infrastructure state
+        if: steps.restore.outputs.status == 'success'
+        run: |
+          cd environments/prod
+          
+          # Refresh state for all components
+          for component in cognito s3-website s3-content cloudfront route53-acm monitoring; do
+            if [ -d "$component" ]; then
+              echo "Refreshing $component state..."
+              cd "$component"
+              terragrunt refresh --terragrunt-non-interactive || echo "Failed to refresh $component"
+              cd ..
+            fi
+          done
+
+      - name: Notify rollback completion
+        run: |
+          if [ "${{ steps.restore.outputs.status }}" = "success" ]; then
+            echo "✅ Production rollback completed successfully"
+            if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"✅ Production Rollback Completed\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nInfrastructure restored to previous state."}' \
+                ${{ env.SLACK_WEBHOOK_URL }}
+            fi
+          else
+            echo "❌ Production rollback failed - manual intervention required"
+            if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"❌ Production Rollback Failed\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\n🚨 MANUAL INTERVENTION REQUIRED 🚨"}' \
+                ${{ env.SLACK_WEBHOOK_URL }}
+            fi
+          fi
+
+  destroy:
+    name: Terragrunt Destroy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    environment: production-destroy
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Notify destroy start
+        run: |
+          echo "🗑️ Starting production environment destruction..."
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"🗑️ Production Destroy Started\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\n⚠️ This will destroy production resources!"}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
+
+      - name: Terragrunt Destroy
+        run: |
+          cd environments/prod
+          
+          # Destroy in reverse dependency order
+          COMPONENTS="cloudfront route53-acm s3-content s3-website cognito"
+          
+          for component in $COMPONENTS; do
+            if [ -d "$component" ]; then
+              echo "Destroying $component..."
+              cd "$component"
+              terragrunt destroy --terragrunt-non-interactive -auto-approve || echo "Failed to destroy $component, continuing..."
+              cd ..
+            fi
+          done
+
+      - name: Notify destroy completion
+        run: |
+          echo "🗑️ Production environment destruction completed"
+          if [ -n "${{ env.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"🗑️ Production Destroy Completed\nRepository: ${{ github.repository }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\nProduction resources have been destroyed."}' \
+              ${{ env.SLACK_WEBHOOK_URL }}
+          fi
