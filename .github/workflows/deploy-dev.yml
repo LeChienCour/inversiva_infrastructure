@@ -1,0 +1,471 @@
+name: Deploy Development Environment
+
+on:
+  push:
+    branches:
+      - develop
+      - dev
+      - feature/*
+    paths:
+      - 'environments/dev/**'
+      - 'modules/**'
+      - 'terragrunt.hcl'
+      - '.github/workflows/deploy-dev.yml'
+  pull_request:
+    branches:
+      - develop
+      - dev
+    paths:
+      - 'environments/dev/**'
+      - 'modules/**'
+      - 'terragrunt.hcl'
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'Component to deploy (all, cognito, s3-website, s3-content, cloudfront, route53-acm)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - cognito
+          - s3-website
+          - s3-content
+          - cloudfront
+          - route53-acm
+          - monitoring
+      action:
+        description: 'Action to perform'
+        required: false
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  AWS_REGION: us-east-1
+  TERRAGRUNT_VERSION: 0.55.1
+  TERRAFORM_VERSION: 1.6.6
+
+jobs:
+  validate:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Validate Terraform syntax
+        run: |
+          find modules -name "*.tf" -exec dirname {} \; | sort -u | while read dir; do
+            echo "Validating $dir"
+            cd "$dir"
+            terraform init -backend=false
+            terraform validate
+            cd - > /dev/null
+          done
+
+      - name: Validate Terragrunt configuration
+        run: |
+          cd environments/dev
+          terragrunt validate-inputs --terragrunt-non-interactive
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      security-status: ${{ steps.security.outputs.status }}
+      critical-issues: ${{ steps.security.outputs.critical_issues }}
+      high-issues: ${{ steps.security.outputs.high_issues }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        run: |
+          pip install checkov==3.1.34
+          checkov --version
+
+      - name: Run enhanced Checkov scan
+        id: security
+        run: |
+          echo "Running enhanced security scan for development environment..."
+          
+          # Create results directory
+          mkdir -p security-scan-results
+          
+          # Run Checkov with custom configuration
+          set +e
+          checkov \
+            --config-file .checkov.yml \
+            --directory . \
+            --output cli \
+            --output sarif \
+            --output json \
+            --output-file-path security-scan-results/ \
+            --baseline .checkov.baseline \
+            --soft-fail \
+            --skip-check CKV_AWS_18,CKV_AWS_19 \
+            2>&1 | tee security-scan-results/checkov-output.log
+          
+          CHECKOV_EXIT_CODE=$?
+          
+          # Parse results
+          if [ -f "security-scan-results/results_json.json" ]; then
+            CRITICAL_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "CRITICAL")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+            HIGH_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "HIGH")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+            TOTAL_FAILED=$(jq '.results.failed_checks | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
+          else
+            CRITICAL_COUNT=0
+            HIGH_COUNT=0
+            TOTAL_FAILED=0
+          fi
+          
+          echo "critical_issues=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+          echo "high_issues=$HIGH_COUNT" >> $GITHUB_OUTPUT
+          echo "total_failed=$TOTAL_FAILED" >> $GITHUB_OUTPUT
+          
+          # Fail only on critical issues for dev environment
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ Critical security issues found: $CRITICAL_COUNT"
+            exit 1
+          else
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "✅ No critical security issues found"
+          fi
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: security-scan-results/results_sarif.sarif
+          category: checkov-dev-deployment
+
+      - name: Upload security scan artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dev-security-scan-${{ github.sha }}
+          path: security-scan-results/
+          retention-days: 7
+
+      - name: Security scan bypass check
+        id: bypass-check
+        if: steps.security.outputs.status == 'failed'
+        run: |
+          # Check if security bypass is requested via commit message or PR labels
+          BYPASS_REQUESTED=false
+          
+          # Check commit message for bypass keywords
+          if echo "${{ github.event.head_commit.message }}" | grep -i "\[security-bypass\]"; then
+            echo "Security bypass requested in commit message"
+            BYPASS_REQUESTED=true
+          fi
+          
+          # For PR events, check labels (this would need to be implemented with GitHub API)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # This is a placeholder - in real implementation, you'd check PR labels
+            echo "Checking PR labels for security bypass..."
+          fi
+          
+          if [ "$BYPASS_REQUESTED" = true ]; then
+            echo "⚠️ Security bypass approved - proceeding with deployment"
+            echo "bypass_approved=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Security bypass not approved - deployment blocked"
+            echo "bypass_approved=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Block deployment on security failure
+        if: steps.security.outputs.status == 'failed' && steps.bypass-check.outputs.bypass_approved != 'true'
+        run: |
+          echo "❌ Deployment blocked due to security issues"
+          echo "Critical issues: ${{ steps.security.outputs.critical_issues }}"
+          echo "High issues: ${{ steps.security.outputs.high_issues }}"
+          echo "Total failed checks: ${{ steps.security.outputs.total_failed }}"
+          echo ""
+          echo "To bypass security checks (emergency only), include [security-bypass] in commit message"
+          exit 1
+
+  plan:
+    name: Terragrunt Plan
+    runs-on: ubuntu-latest
+    needs: [validate, security-scan]
+    if: needs.security-scan.outputs.security-status == 'passed' || needs.security-scan.outputs.bypass_approved == 'true'
+    environment: development
+    outputs:
+      plan-exitcode: ${{ steps.plan.outputs.exitcode }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Terragrunt Plan
+        id: plan
+        run: |
+          cd environments/dev
+          
+          # Determine components to plan
+          if [ "${{ github.event.inputs.component }}" = "all" ] || [ -z "${{ github.event.inputs.component }}" ]; then
+            COMPONENTS="cognito s3-website s3-content cloudfront route53-acm monitoring"
+          else
+            COMPONENTS="${{ github.event.inputs.component }}"
+          fi
+          
+          # Initialize and plan each component
+          for component in $COMPONENTS; do
+            if [ -d "$component" ]; then
+              echo "Planning $component..."
+              cd "$component"
+              
+              # Initialize with retry logic
+              for i in {1..3}; do
+                if terragrunt init --terragrunt-non-interactive; then
+                  break
+                elif [ $i -eq 3 ]; then
+                  echo "Failed to initialize $component after 3 attempts"
+                  exit 1
+                else
+                  echo "Initialization attempt $i failed, retrying..."
+                  sleep 10
+                fi
+              done
+              
+              # Generate plan
+              if ! terragrunt plan -detailed-exitcode --terragrunt-non-interactive -out=tfplan; then
+                EXITCODE=$?
+                if [ $EXITCODE -eq 2 ]; then
+                  echo "Changes detected in $component"
+                  echo "exitcode=2" >> $GITHUB_OUTPUT
+                elif [ $EXITCODE -eq 1 ]; then
+                  echo "Error in planning $component"
+                  exit 1
+                fi
+              else
+                echo "No changes detected in $component"
+              fi
+              
+              cd ..
+            else
+              echo "Component $component not found, skipping..."
+            fi
+          done
+        continue-on-error: false
+
+      - name: Comment PR with plan results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `
+            ## Terragrunt Plan Results (Development)
+            
+            **Plan Status**: ${{ steps.plan.outcome }}
+            **Exit Code**: ${{ steps.plan.outputs.exitcode }}
+            
+            ### Components Planned
+            - Components: ${{ github.event.inputs.component || 'all' }}
+            - Environment: Development
+            - AWS Region: ${{ env.AWS_REGION }}
+            
+            ### Next Steps
+            ${steps.plan.outputs.exitcode == '2' ? '✅ Changes detected - ready for apply' : '✅ No changes detected'}
+            
+            <details>
+            <summary>Show Plan Details</summary>
+            
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            
+            </details>
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  apply:
+    name: Terragrunt Apply
+    runs-on: ubuntu-latest
+    needs: plan
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') ||
+      needs.plan.outputs.plan-exitcode == '2'
+    environment: development
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Terragrunt Apply
+        id: apply
+        run: |
+          cd environments/dev
+          
+          # Determine components to apply
+          if [ "${{ github.event.inputs.component }}" = "all" ] || [ -z "${{ github.event.inputs.component }}" ]; then
+            COMPONENTS="cognito s3-website s3-content route53-acm cloudfront monitoring"
+          else
+            COMPONENTS="${{ github.event.inputs.component }}"
+          fi
+          
+          # Apply each component with dependency order
+          for component in $COMPONENTS; do
+            if [ -d "$component" ]; then
+              echo "Applying $component..."
+              cd "$component"
+              
+              # Apply with retry logic
+              for i in {1..2}; do
+                if terragrunt apply --terragrunt-non-interactive -auto-approve; then
+                  echo "Successfully applied $component"
+                  break
+                elif [ $i -eq 2 ]; then
+                  echo "Failed to apply $component after 2 attempts"
+                  exit 1
+                else
+                  echo "Apply attempt $i failed, retrying..."
+                  sleep 30
+                fi
+              done
+              
+              cd ..
+            else
+              echo "Component $component not found, skipping..."
+            fi
+          done
+        continue-on-error: false
+
+      - name: Post-deployment verification
+        id: verify
+        run: |
+          cd environments/dev
+          
+          echo "Verifying deployment..."
+          
+          # Check if resources were created successfully
+          for component in cognito s3-website s3-content cloudfront route53-acm monitoring; do
+            if [ -d "$component" ]; then
+              cd "$component"
+              echo "Verifying $component outputs..."
+              terragrunt output --terragrunt-non-interactive || echo "No outputs for $component"
+              cd ..
+            fi
+          done
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "✅ Development environment deployment completed successfully!"
+          echo "Environment: Development"
+          echo "Components: ${{ github.event.inputs.component || 'all' }}"
+          echo "Commit: ${{ github.sha }}"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "❌ Development environment deployment failed!"
+          echo "Please check the logs and fix any issues before retrying."
+          exit 1
+
+  destroy:
+    name: Terragrunt Destroy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    environment: development-destroy
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Setup Terragrunt
+        run: |
+          wget -O terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Terragrunt Destroy
+        run: |
+          cd environments/dev
+          
+          # Destroy in reverse dependency order
+          COMPONENTS="monitoring cloudfront route53-acm s3-content s3-website cognito"
+          
+          for component in $COMPONENTS; do
+            if [ -d "$component" ]; then
+              echo "Destroying $component..."
+              cd "$component"
+              terragrunt destroy --terragrunt-non-interactive -auto-approve || echo "Failed to destroy $component, continuing..."
+              cd ..
+            fi
+          done

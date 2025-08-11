@@ -1,0 +1,83 @@
+# Checkov Configuration File
+# This file defines security scanning rules and exceptions for the infrastructure
+
+# Framework to scan
+framework:
+  - terraform
+
+# Directories to scan
+directory:
+  - modules/
+  - environments/
+  - bootstrap/
+
+# Custom policies directory
+external-checks-dir:
+  - .checkov/custom_policies/
+
+# Output format
+output: 
+  - cli
+  - sarif
+  - json
+
+# Severity levels to report
+check-type:
+  - CKV_AWS
+  - CKV2_AWS
+
+# Skip checks that are not applicable or approved exceptions
+skip-check:
+  # S3 Access Logging - Skip for cost optimization in dev environment
+  - CKV_AWS_18  # S3 Bucket should have access logging configured
+  - CKV_AWS_19  # S3 Bucket should have server access logging enabled
+  
+  # S3 Cross-region replication - Skip for cost optimization
+  - CKV_AWS_144  # S3 bucket should have cross-region replication enabled
+  
+  # CloudTrail - Managed at organization level
+  - CKV_AWS_35   # CloudTrail should be enabled
+  - CKV_AWS_36   # CloudTrail should have log file validation enabled
+  
+  # VPC Flow Logs - Not applicable for this serverless architecture
+  - CKV_AWS_76   # VPC should have flow logs enabled
+  
+  # GuardDuty - Managed at organization level
+  - CKV_AWS_20   # GuardDuty should be enabled
+
+# Soft fail mode - don't fail the build on these checks, just warn
+soft-fail-on:
+  # Cost optimization related checks that might be acceptable in dev
+  - CKV_AWS_61   # S3 bucket should have lifecycle configuration
+  - CKV_AWS_145  # S3 bucket should have versioning enabled
+
+# Hard fail on critical security issues
+hard-fail-on:
+  - CKV_AWS_21   # S3 bucket should have versioning enabled (for state buckets)
+  - CKV_AWS_141  # S3 bucket should have versioning enabled
+  - CKV_AWS_40   # IAM policies should not have full "*:*" administrative privileges
+  - CKV_AWS_62   # S3 bucket should have public access blocked
+  - CKV_AWS_53   # S3 bucket should have block public ACLs enabled
+  - CKV_AWS_54   # S3 bucket should have block public policy enabled
+  - CKV_AWS_55   # S3 bucket should have ignore public ACLs enabled
+  - CKV_AWS_56   # S3 bucket should have restrict public bucket enabled
+
+# Custom severity mapping
+severity:
+  CKV2_AWS_S3_NAMING: HIGH
+  CKV2_AWS_COGNITO_PASSWORD: HIGH
+  CKV2_AWS_COGNITO_MFA: MEDIUM
+  CKV2_AWS_CLOUDFRONT_HEADERS: MEDIUM
+  CKV2_AWS_CLOUDFRONT_TLS: HIGH
+
+# Baseline file for approved exceptions
+baseline: .checkov.baseline
+
+# Compact output for CI/CD
+compact: true
+
+# Download external checks
+download-external-modules: true
+
+# Quiet mode for less verbose output
+quiet: false

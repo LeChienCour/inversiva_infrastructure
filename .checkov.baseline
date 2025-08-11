@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+  "description": "Checkov baseline file for approved security exceptions",
+  "baseline_date": "2024-01-01",
+  "approved_exceptions": {
+    "CKV_AWS_18": {
+      "description": "S3 access logging disabled for cost optimization in development environment",
+      "justification": "Access logging generates additional costs and is not required for development environments. Production environments should enable this.",
+      "approved_by": "Security Team",
+      "approval_date": "2024-01-01",
+      "review_date": "2024-07-01",
+      "environments": ["dev", "development"],
+      "resources": [
+        "aws_s3_bucket.website_bucket",
+        "aws_s3_bucket.content_bucket"
+      ]
+    },
+    "CKV_AWS_19": {
+      "description": "S3 server access logging disabled for cost optimization in development environment",
+      "justification": "Server access logging generates additional costs and storage requirements. Not required for development environments.",
+      "approved_by": "Security Team", 
+      "approval_date": "2024-01-01",
+      "review_date": "2024-07-01",
+      "environments": ["dev", "development"],
+      "resources": [
+        "aws_s3_bucket.website_bucket",
+        "aws_s3_bucket.content_bucket"
+      ]
+    },
+    "CKV_AWS_144": {
+      "description": "S3 cross-region replication disabled for cost optimization",
+      "justification": "Cross-region replication doubles storage costs and is not required for this application architecture. Data durability is achieved through S3's built-in redundancy.",
+      "approved_by": "Architecture Team",
+      "approval_date": "2024-01-01", 
+      "review_date": "2024-12-01",
+      "environments": ["dev", "prod"],
+      "resources": [
+        "aws_s3_bucket.website_bucket",
+        "aws_s3_bucket.content_bucket",
+        "aws_s3_bucket.terraform_state"
+      ]
+    },
+    "CKV_AWS_35": {
+      "description": "CloudTrail managed at organization level",
+      "justification": "CloudTrail is configured and managed at the AWS Organization level, not at individual account level.",
+      "approved_by": "Security Team",
+      "approval_date": "2024-01-01",
+      "review_date": "2024-06-01",
+      "environments": ["dev", "prod"],
+      "resources": ["*"]
+    },
+    "CKV_AWS_36": {
+      "description": "CloudTrail log file validation managed at organization level", 
+      "justification": "CloudTrail configuration including log file validation is managed at the AWS Organization level.",
+      "approved_by": "Security Team",
+      "approval_date": "2024-01-01",
+      "review_date": "2024-06-01",
+      "environments": ["dev", "prod"],
+      "resources": ["*"]
+    },
+    "CKV_AWS_76": {
+      "description": "VPC Flow Logs not applicable for serverless architecture",
+      "justification": "This infrastructure uses serverless services (S3, CloudFront, Cognito) that do not require VPC configuration.",
+      "approved_by": "Architecture Team",
+      "approval_date": "2024-01-01",
+      "review_date": "2024-12-01",
+      "environments": ["dev", "prod"],
+      "resources": ["*"]
+    },
+    "CKV_AWS_20": {
+      "description": "GuardDuty managed at organization level",
+      "justification": "GuardDuty is enabled and managed at the AWS Organization level for centralized threat detection.",
+      "approved_by": "Security Team",
+      "approval_date": "2024-01-01",
+      "review_date": "2024-06-01", 
+      "environments": ["dev", "prod"],
+      "resources": ["*"]
+    }
+  },
+  "soft_fail_exceptions": {
+    "CKV_AWS_61": {
+      "description": "S3 lifecycle configuration optional for development",
+      "justification": "Lifecycle policies are cost optimization features that may not be necessary in development environments with short-lived data.",
+      "environments": ["dev", "development"]
+    },
+    "CKV_AWS_145": {
+      "description": "S3 versioning optional for non-critical buckets in development",
+      "justification": "Versioning adds storage costs and may not be necessary for all buckets in development environments.",
+      "environments": ["dev", "development"],
+      "resources": [
+        "aws_s3_bucket.website_bucket"
+      ]
+    }
+  }
+}

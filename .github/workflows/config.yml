@@ -1,0 +1,60 @@
+# GitHub Actions Workflow Configuration
+# This file contains configuration settings for the deployment workflows
+
+# Terraform and Terragrunt versions
+terraform_version: "1.6.6"
+terragrunt_version: "0.55.1"
+
+# AWS Configuration
+aws_region: "us-east-1"
+
+# Component deployment order
+deployment_order:
+  - cognito
+  - s3-website
+  - s3-content
+  - route53-acm
+  - cloudfront
+
+# Destroy order (reverse of deployment)
+destroy_order:
+  - cloudfront
+  - route53-acm
+  - s3-content
+  - s3-website
+  - cognito
+
+# Security scan configuration
+security_scan:
+  enabled: true
+  skip_checks:
+    - "CKV_AWS_18"  # S3 bucket logging (not required for dev)
+    - "CKV_AWS_19"  # S3 bucket encryption (handled by module)
+
+# Retry configuration
+retry:
+  max_attempts: 3
+  delay_seconds: 10
+
+# Environment-specific settings
+environments:
+  development:
+    auto_apply: true
+    require_approval: false
+    destroy_protection: false
+  
+  production:
+    auto_apply: false
+    require_approval: true
+    destroy_protection: true
+
+# Notification settings
+notifications:
+  slack_webhook: ""  # Optional: Add Slack webhook URL
+  email_recipients: []  # Optional: Add email addresses
+
+# Monitoring and alerting
+monitoring:
+  enable_cost_alerts: true
+  cost_threshold: 50  # USD per month
+  enable_security_alerts: true
