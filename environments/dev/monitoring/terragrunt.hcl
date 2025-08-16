@@ -1,7 +1,14 @@
 # Development Environment - Monitoring Configuration
 
+# Include the root terragrunt configuration
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("terragrunt.hcl")
+}
+
+# Include environment-specific configuration
+include "env" {
+  path = "../terragrunt.hcl"
+  expose = true
 }
 
 terraform {
@@ -45,8 +52,8 @@ dependency "cognito" {
 }
 
 inputs = {
-  project_name               = "nextjs-infrastructure"
-  environment               = "dev"
+  project_name               = include.env.locals.project_name
+  environment               = include.env.locals.environment
   cloudfront_distribution_id = dependency.cloudfront.outputs.distribution_id
   website_bucket_name       = dependency.s3_website.outputs.bucket_name
   website_bucket_arn        = dependency.s3_website.outputs.bucket_arn

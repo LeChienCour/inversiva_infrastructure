@@ -1,7 +1,14 @@
 # Production Environment - Monitoring Configuration
 
+# Include the root terragrunt configuration
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("terragrunt.hcl")
+}
+
+# Include environment-specific configuration
+include "env" {
+  path = "../terragrunt.hcl"
+  expose = true
 }
 
 terraform {

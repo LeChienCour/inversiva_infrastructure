@@ -2,12 +2,13 @@
 
 # Include the root terragrunt configuration
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("terragrunt.hcl")
 }
 
-# Include the environment configuration
+# Include environment-specific configuration
 include "env" {
-  path = find_in_parent_folders("terragrunt.hcl")
+  path = "../terragrunt.hcl"
+  expose = true
 }
 
 # Configure the terraform source
@@ -15,37 +16,22 @@ terraform {
   source = "../../../modules/cognito"
 }
 
-# Dependencies - will be updated after S3 content is deployed
-dependencies {
-  paths = ["../s3-content"]
-}
-
-dependency "s3_content" {
-  config_path = "../s3-content"
-  
-  mock_outputs = {
-    bucket_arn = "arn:aws:s3:::inversiva-dev-content-example123"
-  }
-  
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
-  
-  # Skip dependency if it doesn't exist yet
-  skip_outputs = true
-}
+# No dependencies - Cognito is a foundational service that other services depend on
 
 # Module-specific inputs - all configuration comes from environment
 inputs = {
-  # S3 content bucket integration
-  content_bucket_arn = try(dependency.s3_content.outputs.bucket_arn, "")
+  # Basic configuration
+  project_name = include.env.locals.project_name
+  environment  = include.env.locals.environment
   
   # All Cognito configuration from environment
-  password_policy                  = local.dev_config.cognito.password_policy
-  mfa_configuration               = local.dev_config.cognito.mfa_configuration
-  explicit_auth_flows             = local.dev_config.cognito.explicit_auth_flows
-  allowed_oauth_flows             = local.dev_config.cognito.allowed_oauth_flows
-  allowed_oauth_scopes            = local.dev_config.cognito.allowed_oauth_scopes
-  callback_urls                   = local.dev_config.cognito.callback_urls
-  logout_urls                     = local.dev_config.cognito.logout_urls
-  token_validity                  = local.dev_config.cognito.token_validity
-  allow_unauthenticated_identities = local.dev_config.cognito.allow_unauthenticated_identities
+  password_policy                  = include.env.locals.dev_config.cognito.password_policy
+  mfa_configuration               = include.env.locals.dev_config.cognito.mfa_configuration
+  explicit_auth_flows             = include.env.locals.dev_config.cognito.explicit_auth_flows
+  allowed_oauth_flows             = include.env.locals.dev_config.cognito.allowed_oauth_flows
+  allowed_oauth_scopes            = include.env.locals.dev_config.cognito.allowed_oauth_scopes
+  callback_urls                   = include.env.locals.dev_config.cognito.callback_urls
+  logout_urls                     = include.env.locals.dev_config.cognito.logout_urls
+  token_validity                  = include.env.locals.dev_config.cognito.token_validity
+  allow_unauthenticated_identities = include.env.locals.dev_config.cognito.allow_unauthenticated_identities
 }

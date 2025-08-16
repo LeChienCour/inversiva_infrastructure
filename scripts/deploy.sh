@@ -5,22 +5,17 @@
 
 set -e
 
-# Function to handle lock file synchronization
+# Function to handle lock file synchronization across components
 sync_lock_file() {
     local component_dir="$1"
-    local root_lock_file="../../.terraform.lock.hcl"
     local component_lock_file=".terraform.lock.hcl"
+    local reference_lock_file="../cognito/.terraform.lock.hcl"
     
-    # If root lock file exists and component doesn't have one, copy it
-    if [ -f "$root_lock_file" ] && [ ! -f "$component_lock_file" ]; then
-        echo -e "${YELLOW}📋 Copying root lock file to component...${NC}"
-        cp "$root_lock_file" "$component_lock_file"
-    fi
-    
-    # If component has a lock file but root doesn't, copy it up
-    if [ -f "$component_lock_file" ] && [ ! -f "$root_lock_file" ]; then
-        echo -e "${YELLOW}📋 Copying component lock file to root...${NC}"
-        cp "$component_lock_file" "$root_lock_file"
+    # Use cognito component as the reference for lock file consistency
+    # If cognito has a lock file and current component doesn't, copy it
+    if [ -f "$reference_lock_file" ] && [ ! -f "$component_lock_file" ] && [ "$component_dir" != "cognito" ]; then
+        echo -e "${YELLOW}📋 Copying reference lock file to $component_dir...${NC}"
+        cp "$reference_lock_file" "$component_lock_file"
     fi
 }
 
@@ -41,6 +36,7 @@ echo -e "${BLUE}================================${NC}"
 echo -e "Environment: ${GREEN}$ENVIRONMENT${NC}"
 echo -e "Component: ${GREEN}$COMPONENT${NC}"
 echo -e "Action: ${GREEN}$ACTION${NC}"
+echo -e "Working Directory: ${BLUE}$(pwd)${NC}"
 echo ""
 
 # Check prerequisites
@@ -64,13 +60,17 @@ fi
 echo -e "${GREEN}✅ Prerequisites check passed${NC}"
 echo ""
 
-# Navigate to environment directory
-ENV_DIR="environments/$ENVIRONMENT"
+# Navigate to environment directory (works from any location)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_DIR="$PROJECT_ROOT/environments/$ENVIRONMENT"
+
 if [ ! -d "$ENV_DIR" ]; then
     echo -e "${RED}❌ Environment directory '$ENV_DIR' not found${NC}"
     exit 1
 fi
 
+echo -e "${YELLOW}📁 Navigating to: $ENV_DIR${NC}"
 cd "$ENV_DIR"
 
 # Determine components to deploy

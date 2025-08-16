@@ -1,14 +1,15 @@
 # Production Environment Configuration
 # This file contains ALL environment-specific configuration for the production environment
 
-# Include the root terragrunt configuration
-include "root" {
-  path = find_in_parent_folders()
-}
+# This file provides environment-specific configuration
+# Components will include the root directly and merge this configuration
+
+# Provider configuration is handled by the root terragrunt.hcl
 
 locals {
   # Environment-specific variables
   environment = "prod"
+  project_name = "terraform-nextjs-infrastructure"  # Must match root terragrunt.hcl
   
   # Domain configuration for production
   domain_name = "placeholder.mx"
@@ -231,6 +232,7 @@ locals {
 
 # Environment-specific inputs that all modules can access
 inputs = {
+  project_name = local.project_name
   environment = local.environment
   domain_name = local.domain_name
   root_domain = local.root_domain

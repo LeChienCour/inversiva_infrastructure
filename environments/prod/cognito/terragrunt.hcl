@@ -2,12 +2,13 @@
 
 # Include the root terragrunt configuration
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("terragrunt.hcl")
 }
 
-# Include the environment configuration
+# Include environment-specific configuration
 include "env" {
-  path = find_in_parent_folders("terragrunt.hcl")
+  path = "../terragrunt.hcl"
+  expose = true
 }
 
 # Configure the terraform source
@@ -15,29 +16,10 @@ terraform {
   source = "../../../modules/cognito"
 }
 
-# Dependencies - will be updated after S3 content is deployed
-dependencies {
-  paths = ["../s3-content"]
-}
-
-dependency "s3_content" {
-  config_path = "../s3-content"
-  
-  mock_outputs = {
-    bucket_arn = "arn:aws:s3:::inversiva-prod-content-example123"
-  }
-  
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
-  
-  # Skip dependency if it doesn't exist yet
-  skip_outputs = true
-}
+# No dependencies - Cognito is a foundational service that other services depend on
 
 # Module-specific inputs - all configuration comes from environment
 inputs = {
-  # S3 content bucket integration
-  content_bucket_arn = try(dependency.s3_content.outputs.bucket_arn, "")
-  
   # All Cognito configuration from environment
   password_policy                  = local.prod_config.cognito.password_policy
   mfa_configuration               = local.prod_config.cognito.mfa_configuration

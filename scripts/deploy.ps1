@@ -7,23 +7,18 @@ param(
     [string]$Action = "plan"
 )
 
-# Function to handle lock file synchronization
+# Function to handle lock file synchronization across components
 function Sync-LockFile {
     param([string]$ComponentDir)
     
-    $RootLockFile = "..\..\..\.terraform.lock.hcl"
     $ComponentLockFile = ".terraform.lock.hcl"
+    $ReferenceLockFile = "..\cognito\.terraform.lock.hcl"
     
-    # If root lock file exists and component doesn't have one, copy it
-    if ((Test-Path $RootLockFile) -and !(Test-Path $ComponentLockFile)) {
-        Write-Host "📋 Copying root lock file to component..." -ForegroundColor $Yellow
-        Copy-Item $RootLockFile $ComponentLockFile
-    }
-    
-    # If component has a lock file but root doesn't, copy it up
-    if ((Test-Path $ComponentLockFile) -and !(Test-Path $RootLockFile)) {
-        Write-Host "📋 Copying component lock file to root..." -ForegroundColor $Yellow
-        Copy-Item $ComponentLockFile $RootLockFile
+    # Use cognito component as the reference for lock file consistency
+    # If cognito has a lock file and current component doesn't, copy it
+    if ((Test-Path $ReferenceLockFile) -and !(Test-Path $ComponentLockFile) -and ($ComponentDir -ne "cognito")) {
+        Write-Host "📋 Copying reference lock file to $ComponentDir..." -ForegroundColor $Yellow
+        Copy-Item $ReferenceLockFile $ComponentLockFile
     }
 }
 
@@ -38,6 +33,7 @@ Write-Host "================================" -ForegroundColor $Blue
 Write-Host "Environment: $Environment" -ForegroundColor $Green
 Write-Host "Component: $Component" -ForegroundColor $Green
 Write-Host "Action: $Action" -ForegroundColor $Green
+Write-Host "Working Directory: $(Get-Location)" -ForegroundColor $Blue
 Write-Host ""
 
 # Check prerequisites
@@ -63,13 +59,17 @@ try {
 Write-Host "✅ Prerequisites check passed" -ForegroundColor $Green
 Write-Host ""
 
-# Navigate to environment directory
-$EnvDir = "environments\$Environment"
+# Navigate to environment directory (works from any location)
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Split-Path -Parent $ScriptDir
+$EnvDir = Join-Path $ProjectRoot "environments\$Environment"
+
 if (!(Test-Path $EnvDir)) {
     Write-Host "❌ Environment directory '$EnvDir' not found" -ForegroundColor $Red
     exit 1
 }
 
+Write-Host "📁 Navigating to: $EnvDir" -ForegroundColor $Yellow
 Set-Location $EnvDir
 
 # Determine components to deploy
