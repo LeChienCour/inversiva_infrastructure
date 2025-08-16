@@ -24,10 +24,6 @@ provider "aws" {
   }
 }
 
-# Generate random suffix for unique resource naming
-resource "random_id" "suffix" {
-  byte_length = 4
-}
 
 # Data source to get current AWS account ID
 data "aws_caller_identity" "current" {}

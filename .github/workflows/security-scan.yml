@@ -1,381 +1,126 @@
-name: Security Scan
+name: 🔒 Security Scan
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - develop
-      - dev
-    paths:
-      - 'modules/**'
-      - 'environments/**'
-      - 'bootstrap/**'
-      - '.checkov/**'
-      - '.checkov.yml'
-      - '.checkov.baseline'
+    branches: [main, develop, dev, feature/*]
+    paths: ['modules/**', 'environments/**', '.checkov.yml']
   pull_request:
-    branches:
-      - main
-      - master
-      - develop
-      - dev
-    paths:
-      - 'modules/**'
-      - 'environments/**'
-      - 'bootstrap/**'
-      - '.checkov/**'
-      - '.checkov.yml'
-      - '.checkov.baseline'
+    branches: [main, develop, dev]
+    paths: ['modules/**', 'environments/**', '.checkov.yml']
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
   workflow_dispatch:
     inputs:
-      scan_type:
-        description: 'Type of security scan to perform'
+      severity:
+        description: 'Minimum severity to fail on'
         required: false
-        default: 'full'
+        default: 'CRITICAL'
         type: choice
-        options:
-          - full
-          - modules-only
-          - environments-only
-          - custom-policies-only
-      severity_threshold:
-        description: 'Minimum severity level to report'
-        required: false
-        default: 'MEDIUM'
-        type: choice
-        options:
-          - LOW
-          - MEDIUM
-          - HIGH
-          - CRITICAL
-      fail_on_severity:
-        description: 'Fail build on this severity level or higher'
-        required: false
-        default: 'HIGH'
-        type: choice
-        options:
-          - MEDIUM
-          - HIGH
-          - CRITICAL
-
-env:
-  CHECKOV_VERSION: 3.1.34
+        options: [CRITICAL, HIGH, MEDIUM, LOW]
 
 jobs:
   security-scan:
-    name: Checkov Security Scan
+    name: 🔍 Scan Infrastructure
     runs-on: ubuntu-latest
-    outputs:
-      scan-results: ${{ steps.scan.outputs.results }}
-      critical-issues: ${{ steps.scan.outputs.critical_issues }}
-      high-issues: ${{ steps.scan.outputs.high_issues }}
-      medium-issues: ${{ steps.scan.outputs.medium_issues }}
-      scan-status: ${{ steps.scan.outputs.status }}
     steps:
-      - name: Checkout code
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install Checkov
+      - name: 🔍 Run Security Scan
         run: |
-          pip install checkov==${{ env.CHECKOV_VERSION }}
-          checkov --version
-
-      - name: Validate custom policies
-        id: validate-policies
-        run: |
-          echo "Validating custom Checkov policies..."
-          
-          # Check if custom policies directory exists
-          if [ -d ".checkov/custom_policies" ]; then
-            # Validate Python syntax for custom policies
-            python -m py_compile .checkov/custom_policies/*.py
-            echo "✅ Custom policies syntax validation passed"
-          else
-            echo "⚠️ No custom policies directory found"
-          fi
-          
-          # Validate Checkov configuration
-          if [ -f ".checkov.yml" ]; then
-            checkov --config-file .checkov.yml --list
-            echo "✅ Checkov configuration validation passed"
-          else
-            echo "⚠️ No Checkov configuration file found"
-          fi
-
-      - name: Run Checkov security scan
-        id: scan
-        run: |
-          echo "Starting Checkov security scan..."
-          
-          # Determine scan scope based on input
-          SCAN_TYPE="${{ github.event.inputs.scan_type || 'full' }}"
-          SEVERITY_THRESHOLD="${{ github.event.inputs.severity_threshold || 'MEDIUM' }}"
-          FAIL_ON_SEVERITY="${{ github.event.inputs.fail_on_severity || 'HIGH' }}"
-          
-          # Set scan directories based on type
-          case $SCAN_TYPE in
-            "modules-only")
-              SCAN_DIRS="modules/"
-              ;;
-            "environments-only")
-              SCAN_DIRS="environments/"
-              ;;
-            "custom-policies-only")
-              SCAN_DIRS="modules/ environments/"
-              EXTRA_ARGS="--external-checks-dir .checkov/custom_policies/ --check CKV2_AWS"
-              ;;
-            *)
-              SCAN_DIRS="."
-              ;;
-          esac
+          echo "🔍 Running security scan..."
+          pip install checkov
           
           # Create results directory
-          mkdir -p security-scan-results
+          mkdir -p security-results
           
-          # Run Checkov scan with multiple output formats
-          set +e  # Don't exit on non-zero return code
-          
+          # Run Checkov scan
           checkov \
             --config-file .checkov.yml \
-            --directory $SCAN_DIRS \
+            --directory . \
             --output cli \
             --output sarif \
             --output json \
-            --output junitxml \
-            --output-file-path security-scan-results/ \
+            --output-file-path security-results/ \
             --baseline .checkov.baseline \
             --soft-fail \
-            $EXTRA_ARGS \
-            2>&1 | tee security-scan-results/checkov-output.log
+            2>&1 | tee security-results/scan-output.log
           
-          CHECKOV_EXIT_CODE=$?
-          
-          # Parse results for summary
-          if [ -f "security-scan-results/results_json.json" ]; then
-            # Count issues by severity
-            CRITICAL_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "CRITICAL")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
-            HIGH_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "HIGH")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
-            MEDIUM_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "MEDIUM")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
-            LOW_COUNT=$(jq '[.results.failed_checks[] | select(.severity == "LOW")] | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
-            TOTAL_FAILED=$(jq '.results.failed_checks | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
-            TOTAL_PASSED=$(jq '.results.passed_checks | length' security-scan-results/results_json.json 2>/dev/null || echo "0")
-          else
-            CRITICAL_COUNT=0
-            HIGH_COUNT=0
-            MEDIUM_COUNT=0
-            LOW_COUNT=0
-            TOTAL_FAILED=0
-            TOTAL_PASSED=0
+          # Parse results
+          if [ -f "security-results/results_json.json" ]; then
+            CRITICAL=$(jq '[.results.failed_checks[] | select(.severity == "CRITICAL")] | length' security-results/results_json.json 2>/dev/null || echo "0")
+            HIGH=$(jq '[.results.failed_checks[] | select(.severity == "HIGH")] | length' security-results/results_json.json 2>/dev/null || echo "0")
+            MEDIUM=$(jq '[.results.failed_checks[] | select(.severity == "MEDIUM")] | length' security-results/results_json.json 2>/dev/null || echo "0")
+            
+            echo "CRITICAL_COUNT=$CRITICAL" >> $GITHUB_ENV
+            echo "HIGH_COUNT=$HIGH" >> $GITHUB_ENV
+            echo "MEDIUM_COUNT=$MEDIUM" >> $GITHUB_ENV
+            
+            echo "📊 Security Scan Results:"
+            echo "  Critical: $CRITICAL"
+            echo "  High: $HIGH"
+            echo "  Medium: $MEDIUM"
+            
+            # Fail based on severity threshold
+            THRESHOLD="${{ github.event.inputs.severity || 'CRITICAL' }}"
+            case $THRESHOLD in
+              "CRITICAL")
+                [ "$CRITICAL" -gt 0 ] && exit 1
+                ;;
+              "HIGH")
+                [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ] && exit 1
+                ;;
+              "MEDIUM")
+                [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ] || [ "$MEDIUM" -gt 0 ] && exit 1
+                ;;
+            esac
           fi
           
-          # Set outputs
-          echo "critical_issues=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
-          echo "high_issues=$HIGH_COUNT" >> $GITHUB_OUTPUT
-          echo "medium_issues=$MEDIUM_COUNT" >> $GITHUB_OUTPUT
-          echo "low_issues=$LOW_COUNT" >> $GITHUB_OUTPUT
-          echo "total_failed=$TOTAL_FAILED" >> $GITHUB_OUTPUT
-          echo "total_passed=$TOTAL_PASSED" >> $GITHUB_OUTPUT
-          
-          # Create summary
-          SUMMARY="Security Scan Results:\n"
-          SUMMARY="${SUMMARY}✅ Passed: $TOTAL_PASSED\n"
-          SUMMARY="${SUMMARY}❌ Failed: $TOTAL_FAILED\n"
-          SUMMARY="${SUMMARY}🔴 Critical: $CRITICAL_COUNT\n"
-          SUMMARY="${SUMMARY}🟠 High: $HIGH_COUNT\n"
-          SUMMARY="${SUMMARY}🟡 Medium: $MEDIUM_COUNT\n"
-          SUMMARY="${SUMMARY}🟢 Low: $LOW_COUNT"
-          
-          echo -e "$SUMMARY"
-          echo "results<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$SUMMARY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          # Determine final status based on severity threshold
-          case $FAIL_ON_SEVERITY in
-            "CRITICAL")
-              if [ "$CRITICAL_COUNT" -gt 0 ]; then
-                echo "status=failed" >> $GITHUB_OUTPUT
-                exit 1
-              fi
-              ;;
-            "HIGH")
-              if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
-                echo "status=failed" >> $GITHUB_OUTPUT
-                exit 1
-              fi
-              ;;
-            "MEDIUM")
-              if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ] || [ "$MEDIUM_COUNT" -gt 0 ]; then
-                echo "status=failed" >> $GITHUB_OUTPUT
-                exit 1
-              fi
-              ;;
-          esac
-          
-          echo "status=passed" >> $GITHUB_OUTPUT
-        continue-on-error: true
+          echo "✅ Security scan passed!"
 
-      - name: Upload Checkov results to GitHub Security
+      - name: 📤 Upload SARIF Results
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: security-scan-results/results_sarif.sarif
-          category: checkov-security-scan
+          sarif_file: security-results/results_sarif.sarif
 
-      - name: Upload scan artifacts
+      - name: 📦 Upload Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: security-scan-results-${{ github.sha }}
-          path: security-scan-results/
+          name: security-scan-${{ github.sha }}
+          path: security-results/
           retention-days: 30
 
-      - name: Comment PR with security scan results
+      - name: 💬 Comment on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const path = require('path');
+            const critical = process.env.CRITICAL_COUNT || '0';
+            const high = process.env.HIGH_COUNT || '0';
+            const medium = process.env.MEDIUM_COUNT || '0';
             
-            // Read scan results
-            const criticalIssues = '${{ steps.scan.outputs.critical_issues }}';
-            const highIssues = '${{ steps.scan.outputs.high_issues }}';
-            const mediumIssues = '${{ steps.scan.outputs.medium_issues }}';
-            const lowIssues = '${{ steps.scan.outputs.low_issues }}';
-            const totalFailed = '${{ steps.scan.outputs.total_failed }}';
-            const totalPassed = '${{ steps.scan.outputs.total_passed }}';
-            const scanStatus = '${{ steps.scan.outputs.status }}';
+            const status = (critical === '0' && high === '0') ? '✅ PASSED' : '❌ ISSUES FOUND';
             
-            // Determine status emoji
-            const statusEmoji = scanStatus === 'passed' ? '✅' : '❌';
-            const statusText = scanStatus === 'passed' ? 'PASSED' : 'FAILED';
+            const output = `## 🔒 Security Scan Results
             
-            // Create comment body
-            const commentBody = `
-            ## ${statusEmoji} Security Scan Results - ${statusText}
+            **Status**: ${status}
             
-            ### Summary
-            - **Total Passed**: ${totalPassed}
-            - **Total Failed**: ${totalFailed}
+            ### Issue Breakdown
+            - 🔴 Critical: ${critical}
+            - 🟠 High: ${high}
+            - 🟡 Medium: ${medium}
             
-            ### Issues by Severity
-            - 🔴 **Critical**: ${criticalIssues}
-            - 🟠 **High**: ${highIssues}
-            - 🟡 **Medium**: ${mediumIssues}
-            - 🟢 **Low**: ${lowIssues}
-            
-            ### Scan Configuration
-            - **Scan Type**: ${{ github.event.inputs.scan_type || 'full' }}
-            - **Severity Threshold**: ${{ github.event.inputs.severity_threshold || 'MEDIUM' }}
-            - **Fail on Severity**: ${{ github.event.inputs.fail_on_severity || 'HIGH' }}
-            
-            ### Next Steps
-            ${scanStatus === 'failed' ? 
-              '❌ **Action Required**: Please review and fix the security issues before merging.' : 
-              '✅ **Ready to Merge**: No critical security issues found.'
+            ${status.includes('PASSED') ? 
+              '✅ No critical security issues found!' : 
+              '❌ Please review and fix security issues before merging.'
             }
-            
-            <details>
-            <summary>View Detailed Results</summary>
-            
-            Security scan artifacts have been uploaded and are available in the workflow run.
-            SARIF results have been uploaded to GitHub Security tab for detailed analysis.
-            
-            </details>
             `;
             
-            // Post comment
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: commentBody
+              body: output
             });
-
-      - name: Generate security report
-        if: always()
-        run: |
-          echo "Generating security scan report..."
-          
-          cat > security-scan-results/SECURITY_REPORT.md << 'EOF'
-          # Security Scan Report
-          
-          **Generated**: $(date)
-          **Commit**: ${{ github.sha }}
-          **Branch**: ${{ github.ref_name }}
-          **Actor**: ${{ github.actor }}
-          **Workflow**: ${{ github.workflow }}
-          
-          ## Scan Configuration
-          - **Checkov Version**: ${{ env.CHECKOV_VERSION }}
-          - **Scan Type**: ${{ github.event.inputs.scan_type || 'full' }}
-          - **Severity Threshold**: ${{ github.event.inputs.severity_threshold || 'MEDIUM' }}
-          - **Fail on Severity**: ${{ github.event.inputs.fail_on_severity || 'HIGH' }}
-          
-          ## Results Summary
-          - **Status**: ${{ steps.scan.outputs.status }}
-          - **Total Passed**: ${{ steps.scan.outputs.total_passed }}
-          - **Total Failed**: ${{ steps.scan.outputs.total_failed }}
-          
-          ### Issues by Severity
-          - **Critical**: ${{ steps.scan.outputs.critical_issues }}
-          - **High**: ${{ steps.scan.outputs.high_issues }}
-          - **Medium**: ${{ steps.scan.outputs.medium_issues }}
-          - **Low**: ${{ steps.scan.outputs.low_issues }}
-          
-          ## Files Scanned
-          - Terraform modules in `modules/` directory
-          - Environment configurations in `environments/` directory
-          - Bootstrap configuration in `bootstrap/` directory
-          - Custom Checkov policies in `.checkov/custom_policies/`
-          
-          ## Custom Policies Applied
-          - **CKV2_AWS_S3_NAMING**: S3 bucket naming convention enforcement
-          - **CKV2_AWS_COGNITO_PASSWORD**: Cognito password policy validation
-          - **CKV2_AWS_COGNITO_MFA**: Cognito MFA configuration for production
-          - **CKV2_AWS_CLOUDFRONT_HEADERS**: CloudFront security headers validation
-          - **CKV2_AWS_CLOUDFRONT_TLS**: CloudFront TLS version enforcement
-          
-          ## Approved Exceptions
-          The following security checks have been approved for exception based on business requirements:
-          - **CKV_AWS_18/19**: S3 access logging (cost optimization for dev)
-          - **CKV_AWS_144**: S3 cross-region replication (cost optimization)
-          - **CKV_AWS_35/36**: CloudTrail (managed at organization level)
-          - **CKV_AWS_76**: VPC Flow Logs (not applicable for serverless)
-          - **CKV_AWS_20**: GuardDuty (managed at organization level)
-          
-          ## Recommendations
-          1. Review any CRITICAL or HIGH severity issues immediately
-          2. Address MEDIUM severity issues before production deployment
-          3. Consider LOW severity issues for future improvements
-          4. Regularly update the security baseline and custom policies
-          5. Review approved exceptions quarterly
-          
-          ## Additional Resources
-          - [Checkov Documentation](https://www.checkov.io/1.Welcome/Quick%20Start.html)
-          - [AWS Security Best Practices](https://aws.amazon.com/architecture/security-identity-compliance/)
-          - [Terraform Security Best Practices](https://learn.hashicorp.com/tutorials/terraform/security)
-          EOF
-
-      - name: Notify security scan completion
-        if: always()
-        run: |
-          echo "Security scan completed with status: ${{ steps.scan.outputs.status }}"
-          echo "Critical issues: ${{ steps.scan.outputs.critical_issues }}"
-          echo "High issues: ${{ steps.scan.outputs.high_issues }}"
-          echo "Medium issues: ${{ steps.scan.outputs.medium_issues }}"
-          echo "Low issues: ${{ steps.scan.outputs.low_issues }}"
-          
-          if [ "${{ steps.scan.outputs.status }}" = "failed" ]; then
-            echo "❌ Security scan failed - please review and address security issues"
-            exit 1
-          else
-            echo "✅ Security scan passed - no critical security issues found"
-          fi

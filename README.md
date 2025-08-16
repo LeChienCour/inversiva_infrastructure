@@ -1,18 +1,17 @@
-# Terraform Next.js Infrastructure
+# 🚀 Terraform Next.js Infrastructure
 
-A comprehensive Infrastructure as Code (IaC) solution using Terraform and Terragrunt to deploy a scalable, cost-effective web application infrastructure on AWS for Next.js applications.
+Simple, automated Infrastructure as Code for Next.js applications on AWS. Deploy with confidence using easy CI/CD pipelines.
 
-## 🏗️ Architecture Overview
+## ✨ What You Get
 
-This infrastructure supports:
-- **Next.js Frontend**: Static website hosting with S3 and CloudFront
-- **User Authentication**: AWS Cognito for secure user management
-- **Content Delivery**: Global CDN with custom domain support
-- **Secure Content**: Private S3 buckets with presigned URL access
-- **Multi-Environment**: Separate dev and prod environments
-- **Cost Optimization**: Environment-appropriate resource sizing
-- **Ultra-Low Cost Monitoring**: Essential monitoring for ~$0.60/month (dev), ~$6.80/month (prod)
-- **Cost-Effective**: Estimated monthly costs for low traffic: ~$15-25 (dev), ~$35-55 (prod)
+- **🌐 Static Website Hosting**: S3 + CloudFront for Next.js apps
+- **🔐 User Authentication**: AWS Cognito for secure login
+- **📦 Content Delivery**: Global CDN with custom domains
+- **🔒 Secure Content**: Private S3 with presigned URL access
+- **🏗️ Multi-Environment**: Separate dev and prod environments
+- **💰 Cost Optimized**: ~$15-25/month (dev), ~$35-55/month (prod)
+- **📊 Monitoring**: Essential monitoring for ~$0.60-6.80/month
+- **🤖 Easy CI/CD**: Automated deployments with GitHub Actions
 
 ## 📁 Project Structure
 
@@ -41,35 +40,72 @@ This infrastructure supports:
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### 1. Prerequisites
+- AWS CLI configured (`aws configure`)
+- Terraform (>= 1.0) and Terragrunt (>= 0.45.0)
+- GitHub repository with this code
 
-1. **AWS CLI** configured with appropriate credentials
-2. **Terraform** (>= 1.0)
-3. **Terragrunt** (>= 0.45.0)
-4. **Git** for version control
+### 2. Setup GitHub Secrets
+Add to your repository secrets:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
 
-### Installation
+### 3. Bootstrap (One-time setup)
+```bash
+cd bootstrap
+./bootstrap.sh  # or bootstrap.ps1 on Windows
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd terraform-nextjs-infrastructure
-   ```
+### 4. Deploy to Development
+```bash
+git checkout -b feature/my-feature
+git push origin feature/my-feature
+# Creates PR → triggers automatic deployment
+```
 
-2. **Bootstrap the state infrastructure**
-   ```bash
-   cd bootstrap
-   ./bootstrap.sh  # Linux/macOS
-   # or
-   .\bootstrap.ps1  # Windows PowerShell
-   ```
+### 5. Deploy to Production
+```bash
+git checkout main
+git merge feature/my-feature
+git push origin main
+# Triggers production deployment with approval
+```
 
-3. **Deploy an environment**
-   ```bash
-   cd environments/dev
-   terragrunt run-all plan    # Review changes
-   terragrunt run-all apply   # Deploy infrastructure
-   ```
+## 🎯 That's It!
+Your infrastructure is now deployed with automated CI/CD pipelines. No complex commands needed!
+
+> 📖 **New to this project?** Check out the [Getting Started Guide](GETTING_STARTED.md) for a detailed walkthrough!
+
+## 🤖 Automated Pipelines
+
+### Development Workflow
+- **Push to `develop`** → Automatic deployment
+- **Create PR** → Security scan + deployment preview
+- **Manual dispatch** → Deploy specific components
+
+### Production Workflow  
+- **Push to `main`** → Deployment with approval gate
+- **Emergency mode** → Skip approval for critical fixes
+- **Component selection** → Deploy only what changed
+
+### Security Scanning
+- **Every push/PR** → Automatic security validation
+- **Daily scans** → Continuous monitoring
+- **SARIF upload** → GitHub Security tab integration
+
+## 🛠️ Manual Deployment (Optional)
+
+For local development or troubleshooting:
+
+```bash
+# Universal deployment script
+./scripts/deploy.sh dev all plan        # Plan dev environment
+./scripts/deploy.sh dev all apply       # Deploy dev environment
+./scripts/deploy.sh prod cognito apply  # Deploy specific component
+
+# Get outputs
+./scripts/deploy.sh dev all output      # Show all outputs
+```
 
 ## 🏛️ Infrastructure Components
 
@@ -266,9 +302,9 @@ For detailed deployment procedures and automation:
 ### Module Development
 
 1. **Create/Modify Modules**: Work in the `modules/` directory
-2. **Test in Development**: Validate changes in dev environment first
-3. **Update Documentation**: Keep module READMEs and examples current
-4. **Production Deployment**: Deploy to production after thorough validation
+2. **Validate in Development**: Use dev environment for changes
+3. **Update Documentation**: Keep module READMEs current
+4. **Production Deployment**: Deploy to production via CI/CD
 
 For comprehensive module usage examples and configuration:
 🔧 **[Module Usage Guide](docs/MODULE_USAGE.md)**
@@ -339,7 +375,7 @@ For detailed troubleshooting procedures, common issues, and solutions:
 ## 🤝 Contributing
 
 1. Create feature branches for changes
-2. Test changes in dev environment first
+2. Validate changes in dev environment first
 3. Update documentation for any new features
 4. Follow Terraform and Terragrunt best practices
 
