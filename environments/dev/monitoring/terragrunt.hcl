@@ -1,6 +1,6 @@
 # Development Environment - Monitoring Configuration
 
-# Include the root terragrunt configuration
+# Include the root terragrunt configuration (needed for remote state)
 include "root" {
   path = find_in_parent_folders("terragrunt.hcl")
 }
