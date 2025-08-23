@@ -1,203 +1,183 @@
 # Production Environment
 
-This directory contains the production environment configuration for the Terraform Next.js infrastructure project.
+This directory contains the Terraform configuration for the production environment of the Next.js infrastructure project.
 
 ## Overview
 
-The production environment is configured with enterprise-grade security, global performance optimization, and comprehensive monitoring. It implements strict security policies, enhanced backup procedures, and operational excellence practices.
+The production environment is configured with enhanced security, compliance, and monitoring features suitable for production workloads. It includes:
 
-## Key Features
+- **Enhanced Security**: MFA enabled, stricter password policies, HTTPS-only configurations
+- **Compliance Features**: Advanced security mode, comprehensive tagging, audit logging
+- **Production-Grade Monitoring**: Cost alerts, security monitoring, enhanced logging
+- **Backup and Recovery**: Versioning enabled, lifecycle policies, retention management
 
-### 🔒 Security
-- **MFA Required**: Multi-factor authentication enforced for all users
-- **Advanced Threat Protection**: Cognito advanced security mode enabled
-- **Strict Password Policies**: 12-character minimum with symbols required
-- **Enhanced Encryption**: Server-side encryption with KMS integration
-- **Public Access Blocked**: All S3 buckets have public access completely blocked
-- **Security Headers**: Comprehensive security headers via CloudFront
+## Configuration Files
 
-### ⚡ Performance
-- **Global CDN**: CloudFront distribution with worldwide edge locations
-- **Intelligent Tiering**: S3 automatic cost optimization
-- **Enhanced Caching**: Optimized TTL values for production workloads
-- **IPv6 Support**: Modern protocol support for better connectivity
-- **Health Checks**: Multi-region health monitoring
+- `main.tf` - Main Terraform configuration that instantiates all modules
+- `variables.tf` - Variable definitions with validation rules
+- `terraform.tfvars` - Default variable values for production
+- `outputs.tf` - Output values from all modules
+- `versions.tf` - Terraform and provider version constraints
+- `backend.tf` - Backend configuration for state management (to be created)
 
-### 📊 Monitoring & Observability
-- **CloudWatch Integration**: Full monitoring and alerting
-- **Access Logging**: Comprehensive audit trails
-- **Cost Monitoring**: Automated budget alerts and thresholds
-- **Performance Metrics**: Real-time performance monitoring
-- **Security Alerts**: Automated security event notifications
+## Key Production Features
 
-## Directory Structure
+### Security Enhancements
+- **Cognito MFA**: Enabled by default (`cognito_mfa_configuration = "ON"`)
+- **Password Policy**: 12-character minimum with all character types required
+- **Advanced Security**: Enforced mode for additional protection
+- **HTTPS Only**: All URLs and origins must use HTTPS
+- **Token Validity**: Shorter token lifespans for enhanced security
 
-```
-environments/prod/
-├── terragrunt.hcl              # Main production configuration
-├── cognito/
-│   └── terragrunt.hcl         # Cognito User Pool configuration
-├── s3-content/
-│   └── terragrunt.hcl         # Private content S3 bucket
-├── s3-website/
-│   └── terragrunt.hcl         # Static website S3 bucket
-├── cloudfront/
-│   └── terragrunt.hcl         # CloudFront distribution
-├── route53-acm/
-│   └── terragrunt.hcl         # DNS and SSL certificate
-├── CONFIGURATION_APPROACH.md   # Detailed configuration documentation
-└── README.md                   # This file
-```
+### Compliance and Governance
+- **Data Classification**: Marked as "confidential"
+- **Compliance**: Required compliance mode
+- **Comprehensive Tagging**: Enhanced tagging for governance and cost tracking
+- **Backup Requirements**: Enabled with 30-day retention
 
-## Configuration Highlights
+### Cost Optimization
+- **S3 Lifecycle Policies**: Automatic transition to cheaper storage classes
+- **CloudFront Optimization**: PriceClass_100 for cost-effective global distribution
+- **Intelligent Monitoring**: Cost alerts at $25/month and $2/day thresholds
+- **Resource Optimization**: Versioning and lifecycle management enabled
 
-### Domain Configuration
-- **Primary Domain**: `placeholder.mx`
-- **SSL Certificate**: ACM certificate with DNS validation
-- **Health Checks**: Multi-region health monitoring enabled
+### Monitoring and Alerting
+- **Cost Monitoring**: Automated alerts for budget thresholds
+- **Log Retention**: 30-day retention for CloudWatch logs
+- **Enhanced Tagging**: Monitoring level set to "enhanced"
+- **Alert Configuration**: Email alerts to alerts@placeholder.mx
 
-### Security Configuration
-```hcl
-# Enhanced security settings
-mfa_configuration = "ON"
-advanced_security_mode = "ENFORCED"
-password_policy = {
-  minimum_length = 12
-  require_symbols = true
-}
-```
+## Environment Variables
 
-### Performance Configuration
-```hcl
-# Global performance optimization
-price_class = "PriceClass_All"
-enable_intelligent_tiering = true
-default_ttl = 86400  # 1 day caching
+The production environment uses variables from `config/prod.env` which are loaded by the deployment script. Key production-specific settings include:
+
+```bash
+# Security Settings
+COGNITO_MFA_CONFIGURATION=ON
+COGNITO_MIN_PASSWORD_LENGTH=12
+COGNITO_REQUIRE_SYMBOLS=true
+COGNITO_ADVANCED_SECURITY_MODE=ENFORCED
+
+# Domain Configuration
+DOMAIN_NAME=placeholder.mx
+ROOT_DOMAIN=placeholder.mx
+ROUTE53_CREATE_HOSTED_ZONE=true
+
+# Storage Configuration
+S3_ENABLE_VERSIONING=true
+S3_ENABLE_SERVER_SIDE_ENCRYPTION=true
+S3_PRESIGNED_URL_EXPIRATION_SECONDS=900
+
+# Monitoring Configuration
+MONITORING_ENABLE_COST_ALERTS=true
+MONITORING_MONTHLY_COST_THRESHOLD=25
+MONITORING_DAILY_COST_THRESHOLD=2
 ```
 
 ## Deployment
 
 ### Prerequisites
-1. AWS CLI configured with production account credentials
-2. Terragrunt installed
-3. Terraform installed
-4. Proper IAM permissions for production resources
+1. AWS credentials configured with appropriate permissions
+2. Terraform >= 1.0 installed
+3. Environment variables loaded from `config/prod.env`
 
-### Deployment Order
-The modules should be deployed in the following order due to dependencies:
+### Deployment Commands
 
-1. **Route53 & ACM** - DNS and SSL certificate
-2. **S3 Website** - Static website hosting
-3. **S3 Content** - Private content storage
-4. **Cognito** - User authentication
-5. **CloudFront** - CDN distribution
-
-### Deploy All Modules
+Using the deployment script (recommended):
 ```bash
-# From the prod directory
+# From project root
+./scripts/deploy.sh prod plan    # Review changes
+./scripts/deploy.sh prod apply   # Deploy infrastructure
+```
+
+Manual deployment:
+```bash
+# Load environment variables
+source config/common.env
+source config/prod.env
+
+# Navigate to production environment
 cd environments/prod
-terragrunt run-all plan
-terragrunt run-all apply
+
+# Initialize and deploy
+terraform init
+terraform plan
+terraform apply
 ```
 
-### Deploy Individual Modules
-```bash
-# Deploy specific module
-cd environments/prod/cognito
-terragrunt plan
-terragrunt apply
-```
+### State Management
 
-## Cost Optimization
+The production environment uses S3 backend for state management with:
+- **State Bucket**: `terraform-nextjs-infrastructure-tfstate-${AWS_ACCOUNT_ID}-us-east-1`
+- **State Key**: `prod/terraform.tfstate`
+- **Lock Table**: `terraform-nextjs-infrastructure-tfstate-lock`
+- **Encryption**: Enabled
 
-### Monitoring
-- **Monthly Budget**: $25 USD threshold (optimized for small apps)
-- **Daily Budget**: $2 USD threshold (realistic for 20 users)
-- **Automated Alerts**: Email notifications for cost overruns
+## Security Considerations
 
-### Optimization Features
-- **Regional CloudFront**: PriceClass_100 for 60% cost savings vs global
-- **Aggressive Lifecycle Policies**: Quick transitions (7/30/30 days)
-- **Disabled Monitoring**: Reduced CloudWatch costs for small usage
-- **No Health Checks**: Saves $1.50/month
-- **No Access Logging**: Eliminates logging storage costs
-- **AWS Managed KMS**: Free encryption keys instead of custom KMS
-- **CloudFront Caching**: Aggressive caching to reduce origin requests
-- **Resource Tagging**: Comprehensive cost allocation tags
-
-## Security Compliance
+### Access Control
+- All resources use least-privilege IAM policies
+- Cognito configured with strict authentication requirements
+- S3 buckets have public access blocked by default
+- CloudFront uses Origin Access Control for secure S3 access
 
 ### Data Protection
-- **Encryption at Rest**: All S3 buckets encrypted with KMS
-- **Encryption in Transit**: TLS 1.2+ enforced
-- **Access Controls**: Principle of least privilege
-- **Audit Logging**: Comprehensive access and event logging
+- Server-side encryption enabled for all S3 buckets
+- KMS encryption using AWS managed keys
+- Versioning enabled for data recovery
+- Lifecycle policies for cost-effective retention
 
-### Compliance Features
-- **Object Lock**: Immutable storage for compliance
-- **Versioning**: Full version history for data recovery
-- **Cross-Region Backup**: Disaster recovery capabilities
-- **Security Scanning**: Automated policy validation
+### Network Security
+- HTTPS enforced for all web traffic
+- CloudFront configured with security headers
+- CORS policies restricted to production domains
+- Geographic restrictions available if needed
 
-## Monitoring & Alerting
+## Monitoring and Maintenance
 
-### CloudWatch Metrics
-- **Error Rates**: < 5% threshold
-- **Latency**: < 5 second threshold
-- **Availability**: 99.9% uptime target
-- **Cost**: Budget threshold monitoring
+### Cost Monitoring
+- Monthly budget alert at $25
+- Daily spending alert at $2
+- Automatic lifecycle policies to reduce storage costs
+- Regular cost optimization reviews recommended
 
-### Alert Channels
-- **Email**: `alerts@placeholder.mx`
-- **SNS Topics**: Automated notification system
-- **CloudWatch Dashboards**: Real-time monitoring
+### Performance Monitoring
+- CloudFront distribution metrics
+- S3 bucket access patterns
+- Cognito authentication metrics
+- Custom CloudWatch dashboards (optional)
+
+### Backup and Recovery
+- S3 versioning enabled for data recovery
+- 30-day retention for non-current versions
+- Cross-region replication available (currently disabled)
+- Point-in-time recovery options available
 
 ## Troubleshooting
 
 ### Common Issues
+1. **Certificate Validation**: Ensure DNS records are properly configured
+2. **Cognito Configuration**: Verify callback URLs match application settings
+3. **S3 Permissions**: Check bucket policies and IAM roles
+4. **CloudFront Caching**: Clear cache if content updates aren't visible
 
-#### Certificate Validation
-If ACM certificate validation fails:
-```bash
-# Check DNS records
-dig TXT _acme-challenge.placeholder.mx
-```
+### Support Contacts
+- **Technical Issues**: platform-team
+- **Security Concerns**: security@placeholder.mx
+- **Cost Optimization**: alerts@placeholder.mx
 
-#### CloudFront Distribution
-If CloudFront deployment fails:
-```bash
-# Check origin access
-aws s3 ls s3://inversiva-prod-website/
-```
+## Compliance and Auditing
 
-#### Cognito Configuration
-If user authentication fails:
-```bash
-# Check user pool configuration
-aws cognito-idp describe-user-pool --user-pool-id <pool-id>
-```
+### Audit Trail
+- CloudTrail logging enabled for all API calls
+- CloudWatch logs retained for 30 days
+- Resource tagging for compliance tracking
+- Regular security assessments recommended
 
-### Support
-For production issues, contact the platform team immediately:
-- **Email**: platform-team@placeholder.mx
-- **Slack**: #platform-alerts
-- **On-call**: Follow escalation procedures
+### Compliance Features
+- Data classification tagging
+- Backup requirement enforcement
+- Security mode enforcement
+- Comprehensive resource tagging
 
-## Maintenance
-
-### Regular Tasks
-- **Monthly**: Review cost reports and optimization opportunities
-- **Quarterly**: Security policy review and updates
-- **Annually**: Disaster recovery testing and documentation updates
-
-### Backup Verification
-- **Weekly**: Verify backup integrity
-- **Monthly**: Test restore procedures
-- **Quarterly**: Full disaster recovery drill
-
-## Security Contacts
-
-For security incidents or concerns:
-- **Security Team**: security@placeholder.mx
-- **Incident Response**: Follow security incident procedures
-- **Compliance**: compliance@placeholder.mx
+For more information, see the main project documentation in the `docs/` directory.

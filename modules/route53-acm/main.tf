@@ -202,7 +202,7 @@ resource "aws_route53_health_check" "main" {
   request_interval                = var.health_check_request_interval
   cloudwatch_alarm_region         = data.aws_region.current.name
   cloudwatch_alarm_name           = "${local.naming_prefix}-health-check-alarm"
-  insufficient_data_health_status = "Failure"
+  insufficient_data_health_status = "LastKnownStatus"
 
   tags = merge(
     local.common_tags,

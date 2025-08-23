@@ -1,94 +1,105 @@
-# Development Environment Deployment Guide
+# Development Environment
 
-This directory contains the Terragrunt configuration for the development environment of the Inversiva infrastructure project.
+This directory contains the Terraform configuration for the development environment of the Next.js infrastructure project.
 
-## Architecture Overview
+## Overview
 
-The development environment is optimized for cost savings while maintaining functionality for testing and development purposes.
+The development environment is optimized for cost and development speed, with relaxed security settings and regional CloudFront distribution.
 
-## Deployment Order
+## Configuration Files
 
-Due to interdependencies between modules, deploy them in the following order:
+- `main.tf` - Main Terraform configuration that instantiates all modules
+- `variables.tf` - Variable definitions with validation rules
+- `outputs.tf` - Output values from all modules
+- `terraform.tfvars` - Default variable values for development
+- `backend.tf` - S3 backend configuration for state management
+- `versions.tf` - Terraform and provider version constraints
 
-### Phase 1: Foundation
-1. **route53-acm** - Creates domain certificates and DNS records
-2. **cognito** - Creates user authentication infrastructure
+## Deployed Resources
 
-### Phase 2: Storage and Distribution
-3. **cloudfront** - Creates CDN distribution (requires certificate from route53-acm)
-4. **s3-website** - Creates website hosting bucket
-5. **s3-content** - Creates private content bucket (requires cognito for IAM policies)
+### Core Infrastructure
+- **Route53 & ACM**: DNS management and SSL certificates
+- **Cognito**: User authentication (User Pool + Identity Pool)
+- **S3 Website**: Static website hosting bucket
+- **S3 Content**: Private content storage bucket
+- **CloudFront**: CDN distribution
+- **Monitoring**: CloudWatch dashboards and alarms
 
-### Phase 3: Integration
-After all modules are deployed, you may need to update configurations to wire them together:
-- Update S3 website bucket policy with CloudFront OAC
-- Update Cognito IAM policies with S3 content bucket ARN
-- Update CloudFront origin with actual S3 bucket domain
-
-## Cost Optimizations
-
-The development environment includes several cost optimizations:
-
-### S3 Optimizations
-- Versioning disabled to save storage costs
-- Aggressive lifecycle policies (IA after 7 days, Glacier after 30 days)
-- No access logging to reduce costs
-
-### CloudFront Optimizations
-- PriceClass_100 (North America and Europe only)
-- IPv6 disabled
-- Monitoring disabled
-- No WAF integration
-
-### Route53 Optimizations
-- Uses existing hosted zone (saves $0.50/month)
-- Health checks disabled (saves $0.50/month)
-- IPv6 records disabled
-
-### Cognito Optimizations
-- MFA optional instead of required
-- Relaxed password policies
-- Shorter token validity periods
+### Development-Specific Settings
+- **Cost Optimization**: PriceClass_100 for CloudFront (US, Canada, Europe)
+- **Relaxed Security**: Optional MFA, shorter token validity
+- **Local Development**: CORS configured for localhost:3000
+- **Minimal Monitoring**: Basic CloudWatch monitoring only
 
 ## Environment Variables
 
-Key environment-specific variables:
+Configuration is managed through environment variables loaded from:
+- `config/common.env` - Shared configuration
+- `config/dev.env` - Development-specific configuration
+
+Key development settings:
 - Domain: `dev.placeholder.mx`
-- Environment: `dev`
-- Cost optimization: Enabled
-- Auto-shutdown: Enabled for applicable resources
+- Cognito password length: 8 characters minimum
+- S3 versioning: Disabled for cost savings
+- CloudFront price class: PriceClass_100
+- Route53 hosted zone: Not created (assumes existing)
 
-## Deployment Commands
+## Deployment
 
-Deploy individual modules:
+### Prerequisites
+1. AWS credentials configured
+2. Terraform >= 1.0 installed
+3. Bootstrap infrastructure deployed (S3 bucket + DynamoDB table)
+
+### Deploy Command
 ```bash
-# Deploy in order
-cd route53-acm && terragrunt apply
-cd ../cognito && terragrunt apply
-cd ../cloudfront && terragrunt apply
-cd ../s3-website && terragrunt apply
-cd ../s3-content && terragrunt apply
+# From project root
+./scripts/deploy.sh dev plan    # Review changes
+./scripts/deploy.sh dev apply   # Deploy infrastructure
 ```
 
-Deploy all modules (use with caution due to dependencies):
+### Manual Deployment
 ```bash
-terragrunt run-all apply
+cd environments/dev
+terraform init
+terraform plan
+terraform apply
 ```
 
-## Testing
+## Outputs
 
-After deployment, verify:
-1. Domain resolves to CloudFront distribution
-2. S3 website bucket serves content through CloudFront
-3. Cognito user pool is accessible
-4. S3 content bucket generates presigned URLs
-5. All resources are properly tagged
+After deployment, the following outputs are available:
+- Application URL: `https://dev.placeholder.mx`
+- Cognito User Pool ID
+- S3 bucket names
+- CloudFront distribution ID
+- Certificate ARN
 
-## Cleanup
+## Dependencies
 
-To destroy the environment:
-```bash
-terragrunt run-all destroy
-```
+Modules are deployed in the following order:
+1. Route53 & ACM (certificates)
+2. S3 buckets (website and content)
+3. CloudFront (CDN distribution)
+4. Cognito (authentication)
+5. Monitoring (CloudWatch)
 
-Note: Destroy in reverse order if doing manually to avoid dependency issues.
+## Cost Estimation
+
+Estimated monthly costs for low traffic development environment:
+- CloudFront: ~$1-3
+- S3: ~$1-2
+- Route53: ~$0.50
+- Cognito: Free tier
+- CloudWatch: ~$0.60
+- **Total: ~$3-6/month**
+
+## Security Notes
+
+Development environment uses relaxed security settings:
+- MFA is optional
+- Shorter token validity periods
+- CORS allows localhost origins
+- No advanced security features enabled
+
+For production deployment, see `../prod/` directory.

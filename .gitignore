@@ -1,23 +1,22 @@
-# Terraform and Terragrunt files
+# Terraform files
 *.tfstate
 *.tfstate.*
 *.tfplan
-*.tfvars
 .terraform/
-.terragrunt-cache/
-
-# Generated files (Terragrunt creates these automatically)
-backend.tf
-provider.tf
 
 # Terraform lock files - IMPORTANT: These should be committed!
 # .terraform.lock.hcl files are intentionally NOT ignored
 # They ensure consistent provider versions across environments
 
-# Terragrunt debug and temporary files
-terragrunt-debug.tfvars.json
-.terragrunt-source-*
-.terragrunt-module-*
+# Terraform variable files (contain sensitive data)
+# Note: terraform.tfvars files are committed as they contain environment configuration
+# Only ignore sensitive/local override files
+*.auto.tfvars
+secrets.tfvars
+sensitive.tfvars
+private.tfvars
+local.tfvars
+*.local.tfvars
 
 # OS generated files
 .DS_Store
@@ -78,8 +77,8 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Terragrunt debug files
-terragrunt-debug.tfvars.json
+# Terraform debug files
+terraform-debug.log
 
 # Certificate files (should be managed by ACM)
 *.pem
@@ -107,18 +106,14 @@ terraform.tfstate.*.backup
 .terraformrc
 terraform.rc
 
+# Terraform plugin cache
+.terraform.d/
+
 # Ignore any local testing or development scripts
 test-*.sh
 test-*.ps1
 dev-*.sh
 dev-*.ps1
 
-# Ignore local configuration overrides
-local.tfvars
-local.auto.tfvars
-*.local.tfvars
-
-# Ignore sensitive files that might be created during development
-secrets.tfvars
-sensitive.tfvars
-private.tfvars
+# Ignore local configuration overrides (already covered above)
+# local.tfvars, *.local.tfvars, secrets.tfvars, etc.

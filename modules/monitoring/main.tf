@@ -142,10 +142,11 @@ resource "aws_budgets_budget" "cost_budget" {
   time_unit    = "MONTHLY"
   time_period_start = formatdate("YYYY-MM-01_00:00", timestamp())
 
-  cost_filters = {
-    Tag = [
-      "Environment:${var.environment}",
-      "Project:${var.project_name}"
+  cost_filter {
+    name = "TagKeyValue"
+    values = [
+      "Environment$${var.environment}",
+      "Project$${var.project_name}"
     ]
   }
 

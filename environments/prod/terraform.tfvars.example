@@ -1,0 +1,26 @@
+# Production Environment - Terraform Variables Example
+# Copy this file to terraform.tfvars.local for local development
+# Or use the deployment script to load values from config/prod.env
+
+# === CORE PROJECT CONFIGURATION ===
+project_name = "terraform-nextjs-infrastructure"
+environment  = "prod"
+aws_region   = "us-east-1"
+
+# === DOMAIN CONFIGURATION ===
+# Update these values for your production domain
+domain_name = "yourdomain.com"
+root_domain = "yourdomain.com"
+
+# === TAGGING CONFIGURATION ===
+cost_center          = "production"
+owner               = "platform-team"
+auto_shutdown       = "disabled"
+compliance          = "required"
+data_classification = "confidential"
+backup_required     = "true"
+monitoring_level    = "enhanced"
+
+# Additional variables are defined in terraform.tfvars
+# This file shows the minimum required variables for customization
+# IMPORTANT: Review all security settings before production deployment

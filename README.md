@@ -1,6 +1,6 @@
 # 🚀 Terraform Next.js Infrastructure
 
-Simple, automated Infrastructure as Code for Next.js applications on AWS. Deploy with confidence using easy CI/CD pipelines.
+Simple, pure Terraform Infrastructure as Code for Next.js applications on AWS. Deploy with confidence using environment-specific configuration files and streamlined deployment scripts.
 
 ## ✨ What You Get
 
@@ -8,10 +8,10 @@ Simple, automated Infrastructure as Code for Next.js applications on AWS. Deploy
 - **🔐 User Authentication**: AWS Cognito for secure login
 - **📦 Content Delivery**: Global CDN with custom domains
 - **🔒 Secure Content**: Private S3 with presigned URL access
-- **🏗️ Multi-Environment**: Separate dev and prod environments
+- **🏗️ Multi-Environment**: Separate dev and prod environments with .env configuration
 - **💰 Cost Optimized**: ~$15-25/month (dev), ~$35-55/month (prod)
 - **📊 Monitoring**: Essential monitoring for ~$0.60-6.80/month
-- **🤖 Easy CI/CD**: Automated deployments with GitHub Actions
+- **⚡ Pure Terraform**: Simplified deployment without Terragrunt complexity
 
 ## 📁 Project Structure
 
@@ -23,9 +23,14 @@ Simple, automated Infrastructure as Code for Next.js applications on AWS. Deploy
 │   ├── bootstrap.sh          # Bootstrap script (Linux/macOS)
 │   ├── bootstrap.ps1         # Bootstrap script (Windows)
 │   └── README.md             # Bootstrap documentation
-├── environments/             # Environment-specific configurations
+├── environments/             # Environment-specific Terraform configurations
 │   ├── dev/                  # Development environment
-│   └── prod/                 # Production environment
+│   │   ├── main.tf           # Main Terraform configuration
+│   │   ├── variables.tf      # Variable definitions
+│   │   ├── outputs.tf        # Output values
+│   │   ├── backend.tf        # Backend configuration
+│   │   └── terraform.tfvars  # Auto-generated from .env files
+│   └── prod/                 # Production environment (same structure)
 ├── modules/                  # Custom Terraform modules
 │   ├── cognito/              # Cognito authentication module
 │   ├── s3-website/           # S3 static website hosting module
@@ -33,7 +38,13 @@ Simple, automated Infrastructure as Code for Next.js applications on AWS. Deploy
 │   ├── cloudfront/           # CloudFront distribution module
 │   ├── route53-acm/          # Route 53 and ACM certificate module
 │   └── monitoring/           # CloudWatch monitoring and alerting module
-├── terragrunt.hcl            # Root Terragrunt configuration
+├── config/                   # Environment configuration files
+│   ├── common.env            # Shared environment variables
+│   ├── dev.env               # Development-specific variables
+│   └── prod.env              # Production-specific variables
+├── scripts/                  # Deployment utilities
+│   ├── deploy.sh             # Main deployment script
+│   └── load-env.sh           # Environment loading utility
 ├── .gitignore                # Git ignore patterns
 └── README.md                 # This file
 ```
@@ -42,69 +53,228 @@ Simple, automated Infrastructure as Code for Next.js applications on AWS. Deploy
 
 ### 1. Prerequisites
 - AWS CLI configured (`aws configure`)
-- Terraform (>= 1.0) and Terragrunt (>= 0.45.0)
-- GitHub repository with this code
+- Terraform (>= 1.0)
+- Bash shell (Linux/macOS) or Git Bash (Windows)
 
-### 2. Setup GitHub Secrets
-Add to your repository secrets:
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-
-### 3. Bootstrap (One-time setup)
+### 2. Bootstrap (One-time setup)
 ```bash
+# Create state management infrastructure
 cd bootstrap
 ./bootstrap.sh  # or bootstrap.ps1 on Windows
 ```
 
+### 3. Configure Environment Variables
+Edit the environment configuration files in the `config/` directory:
+- `config/common.env` - Shared variables across environments
+- `config/dev.env` - Development-specific configuration
+- `config/prod.env` - Production-specific configuration
+
 ### 4. Deploy to Development
 ```bash
-git checkout -b feature/my-feature
-git push origin feature/my-feature
-# Creates PR → triggers automatic deployment
+# Deploy development environment
+./scripts/deploy.sh dev plan    # Review changes
+./scripts/deploy.sh dev apply   # Apply changes
 ```
 
 ### 5. Deploy to Production
 ```bash
-git checkout main
-git merge feature/my-feature
-git push origin main
-# Triggers production deployment with approval
+# Deploy production environment
+./scripts/deploy.sh prod plan   # Review changes
+./scripts/deploy.sh prod apply  # Apply changes (requires confirmation)
 ```
 
 ## 🎯 That's It!
-Your infrastructure is now deployed with automated CI/CD pipelines. No complex commands needed!
+Your infrastructure is now deployed using pure Terraform with environment-specific configuration files!
 
 > 📖 **New to this project?** Check out the [Getting Started Guide](GETTING_STARTED.md) for a detailed walkthrough!
 
-## 🤖 Automated Pipelines
+## 🔧 Pure Terraform Approach
 
-### Development Workflow
-- **Push to `develop`** → Automatic deployment
-- **Create PR** → Security scan + deployment preview
-- **Manual dispatch** → Deploy specific components
+This project has been simplified to use **pure Terraform** instead of Terragrunt, making it easier to understand and deploy. Here's what changed:
 
-### Production Workflow  
-- **Push to `main`** → Deployment with approval gate
-- **Emergency mode** → Skip approval for critical fixes
-- **Component selection** → Deploy only what changed
+### Key Benefits
+- **Simplified Architecture**: No Terragrunt complexity or nested configurations
+- **Environment Variables**: Clear `.env` files for environment-specific settings
+- **Direct Terraform**: Standard Terraform commands and workflows
+- **Easy Configuration**: Edit `.env` files instead of complex HCL configurations
+- **Better Debugging**: Clearer error messages and troubleshooting
 
-### Security Scanning
-- **Every push/PR** → Automatic security validation
-- **Daily scans** → Continuous monitoring
-- **SARIF upload** → GitHub Security tab integration
+### How It Works
+1. **Environment Configuration**: Variables are defined in `config/*.env` files
+2. **Automatic Generation**: Deployment script generates `terraform.tfvars` from `.env` files
+3. **Standard Terraform**: Uses standard Terraform commands (`init`, `plan`, `apply`)
+4. **Environment Isolation**: Separate directories for dev and prod with their own state
 
-## 🛠️ Manual Deployment (Optional)
+### Fresh Deployment Setup
 
-For local development or troubleshooting:
+Since this is a fresh deployment (no existing AWS resources), follow these steps:
+
+#### 1. Initial Setup
+```bash
+# Clone the repository
+git clone <repository-url>
+cd terraform-nextjs-infrastructure
+
+# Configure AWS credentials
+aws configure
+```
+
+#### 2. Bootstrap State Management
+```bash
+# Create S3 bucket and DynamoDB table for Terraform state
+cd bootstrap
+./bootstrap.sh  # Linux/macOS
+# or
+.\bootstrap.ps1  # Windows PowerShell
+```
+
+#### 3. Configure Your Environment
+Edit the configuration files to match your setup:
 
 ```bash
-# Universal deployment script
-./scripts/deploy.sh dev all plan        # Plan dev environment
-./scripts/deploy.sh dev all apply       # Deploy dev environment
-./scripts/deploy.sh prod cognito apply  # Deploy specific component
+# Edit common settings
+nano config/common.env
+
+# Edit development settings
+nano config/dev.env
+
+# Edit production settings  
+nano config/prod.env
+```
+
+**Important**: Update these key variables:
+- `DOMAIN_NAME`: Your actual domain name
+- `ROOT_DOMAIN`: Your root domain
+- `S3_CONTENT_BUCKET_PREFIX`: Unique prefix for your S3 buckets
+- `CORS_ALLOW_ORIGINS`: Your application URLs
+
+#### 4. Deploy Development Environment
+```bash
+# Plan the deployment (review changes)
+./scripts/deploy.sh dev plan
+
+# Apply the deployment
+./scripts/deploy.sh dev apply
+```
+
+#### 5. Deploy Production Environment
+```bash
+# Plan the deployment (review changes)
+./scripts/deploy.sh prod plan
+
+# Apply the deployment (requires confirmation)
+./scripts/deploy.sh prod apply
+```
+
+### Environment Variable Reference
+
+#### Required Variables (must be customized)
+- `DOMAIN_NAME`: Primary domain for your application
+- `ROOT_DOMAIN`: Root domain for DNS management
+- `S3_CONTENT_BUCKET_PREFIX`: Unique prefix for S3 buckets
+- `CORS_ALLOW_ORIGINS`: Allowed origins for CORS
+
+#### Optional Variables (have sensible defaults)
+- `COGNITO_MIN_PASSWORD_LENGTH`: Password complexity requirements
+- `CLOUDFRONT_PRICE_CLASS`: CloudFront distribution scope
+- `S3_ENABLE_VERSIONING`: S3 object versioning
+- `ROUTE53_CREATE_HOSTED_ZONE`: Whether to create Route53 hosted zone
+
+### Validation and Safety
+The deployment script includes comprehensive validation:
+- **Environment Variable Validation**: Checks for required variables and formats
+- **AWS Credentials**: Validates AWS access and permissions
+- **Terraform Prerequisites**: Ensures Terraform is installed and configured
+- **Environment Consistency**: Validates configuration matches environment
+- **Production Safety**: Requires explicit confirmation for production deployments
+
+### Migration from Terragrunt (if applicable)
+
+If you're migrating from a previous Terragrunt-based version:
+
+1. **Backup Existing State**: Ensure your Terraform state is safely backed up
+2. **Review Configuration**: Compare your existing Terragrunt variables with the new `.env` files
+3. **Update Variables**: Transfer your configuration to the appropriate `.env` files
+4. **Test in Development**: Deploy to development environment first to validate the migration
+5. **Remove Terragrunt Files**: After successful migration, remove old `terragrunt.hcl` files
+
+**Note**: The state management (S3 bucket and DynamoDB table) remains the same, so your existing infrastructure state is preserved.
+
+## ⚙️ Environment Configuration
+
+### Configuration Files
+The project uses `.env` files for environment-specific configuration:
+
+- **`config/common.env`**: Shared variables across all environments
+- **`config/dev.env`**: Development-specific settings (relaxed security, cost-optimized)
+- **`config/prod.env`**: Production-specific settings (enhanced security, performance-optimized)
+
+### Key Configuration Areas
+
+#### Development Environment
+- Relaxed password policies (8 characters minimum)
+- Regional CloudFront distribution (cost-optimized)
+- S3 versioning disabled
+- CORS allows localhost for local development
+- Optional MFA for easier development
+
+#### Production Environment
+- Strict password policies (12 characters minimum, symbols required)
+- Global CloudFront distribution
+- S3 versioning enabled
+- Restricted CORS origins
+- MFA enforced for enhanced security
+
+### Customizing Configuration
+1. Edit the appropriate `.env` file in the `config/` directory
+2. Run the deployment script to apply changes
+3. The script automatically generates `terraform.tfvars` from your `.env` files
+
+## 🛠️ Deployment Commands
+
+### Basic Deployment
+```bash
+# Plan changes (recommended first step)
+./scripts/deploy.sh [environment] plan
+
+# Apply changes
+./scripts/deploy.sh [environment] apply
+
+# Get infrastructure outputs
+./scripts/deploy.sh [environment] output
+
+# Destroy infrastructure (careful!)
+./scripts/deploy.sh [environment] destroy
+```
+
+### Examples
+```bash
+# Development workflow
+./scripts/deploy.sh dev plan     # Review development changes
+./scripts/deploy.sh dev apply    # Deploy to development
+
+# Production workflow
+./scripts/deploy.sh prod plan    # Review production changes
+./scripts/deploy.sh prod apply   # Deploy to production (requires confirmation)
 
 # Get outputs
-./scripts/deploy.sh dev all output      # Show all outputs
+./scripts/deploy.sh dev output   # Show development outputs
+./scripts/deploy.sh prod output  # Show production outputs
+
+# Initialize only (useful for troubleshooting)
+./scripts/deploy.sh dev init-only
+```
+
+### Advanced Operations
+```bash
+# Refresh state
+./scripts/deploy.sh dev refresh
+
+# Validate configuration
+cd environments/dev && terraform validate
+
+# Format Terraform files
+terraform fmt -recursive
 ```
 
 ## 🏛️ Infrastructure Components
@@ -273,38 +443,42 @@ flowchart TD
 1. **Local Development**
    ```bash
    # Plan changes locally
-   cd environments/dev
-   terragrunt plan
+   ./scripts/deploy.sh dev plan
    
    # Apply changes
-   terragrunt apply
+   ./scripts/deploy.sh dev apply
    ```
 
-2. **Automated Deployment**
+2. **Environment-Specific Configuration**
    ```bash
-   # Push to development branch triggers auto-deployment
-   git push origin develop
+   # Edit environment variables
+   nano config/dev.env     # Development settings
+   nano config/prod.env    # Production settings
    
-   # Production requires manual approval
-   git push origin main
+   # Deploy with new configuration
+   ./scripts/deploy.sh dev apply
    ```
 
-3. **Component-Specific Deployment**
+3. **Direct Terraform Commands** (if needed)
    ```bash
-   # Deploy specific component
-   cd environments/dev/cognito
-   terragrunt apply
+   # Navigate to environment directory
+   cd environments/dev
+   
+   # Standard Terraform workflow
+   terraform init
+   terraform plan
+   terraform apply
    ```
 
-For detailed deployment procedures and automation:
+For detailed deployment procedures:
 🚀 **[Development Deployment Guide](docs/DEVELOPMENT_DEPLOYMENT.md)**
 
 ### Module Development
 
 1. **Create/Modify Modules**: Work in the `modules/` directory
-2. **Validate in Development**: Use dev environment for changes
+2. **Validate in Development**: Use dev environment for testing changes
 3. **Update Documentation**: Keep module READMEs current
-4. **Production Deployment**: Deploy to production via CI/CD
+4. **Production Deployment**: Deploy to production using deployment scripts
 
 For comprehensive module usage examples and configuration:
 🔧 **[Module Usage Guide](docs/MODULE_USAGE.md)**
@@ -343,21 +517,27 @@ For comprehensive security documentation:
 1. **State locking errors**
    - Check DynamoDB table permissions
    - Verify state bucket access
-   - Use `terragrunt force-unlock <LOCK_ID>` if necessary
+   - Use `terraform force-unlock <LOCK_ID>` if necessary
 
-2. **Module not found errors**
-   - Ensure module paths are correct in terragrunt.hcl
-   - Verify module structure and files
-   - Clear Terragrunt cache: `rm -rf .terragrunt-cache`
+2. **Environment variable errors**
+   - Verify `.env` files exist in `config/` directory
+   - Check for missing required variables
+   - Validate variable formats (domains, booleans, etc.)
 
 3. **AWS permission errors**
    - Check IAM policies and permissions
    - Verify AWS CLI configuration: `aws sts get-caller-identity`
+   - Ensure AWS credentials are properly configured
 
 4. **CloudFront deployment issues**
    - Certificate validation can take 5-30 minutes
    - Check Route53 DNS validation records
    - Verify domain ownership
+
+5. **Terraform initialization issues**
+   - Remove `.terraform` directory and re-run `terraform init`
+   - Check backend configuration in `backend.tf`
+   - Verify S3 bucket and DynamoDB table exist (run bootstrap if needed)
 
 ### Comprehensive Troubleshooting
 
@@ -369,8 +549,9 @@ For detailed troubleshooting procedures, common issues, and solutions:
 1. Check the [Troubleshooting Guide](docs/TROUBLESHOOTING.md) for detailed solutions
 2. Review [Module Usage Examples](docs/MODULE_USAGE.md) for configuration help
 3. Check the bootstrap README for initial setup issues
-4. Review Terragrunt logs for detailed error messages
+4. Review deployment script logs for detailed error messages
 5. Validate Terraform syntax with `terraform validate`
+6. Check environment variable configuration in `config/*.env` files
 
 ## 🤝 Contributing
 
@@ -396,19 +577,15 @@ This project includes comprehensive security scanning using Checkov with:
 
 ### Quick Commands
 ```bash
-# Run security scan
+# Run security scan on all environments
 checkov --config-file .checkov.yml --directory .
 
-# List security exceptions
-./scripts/manage-security-exceptions.sh list  # Linux/macOS
-.\scripts\manage-security-exceptions.ps1 list  # Windows
+# Run security scan on specific environment
+checkov --config-file .checkov.yml --directory environments/dev
+checkov --config-file .checkov.yml --directory environments/prod
 
-# Add security exception
-./scripts/manage-security-exceptions.sh add \
-  --check-id CKV_AWS_18 \
-  --environment dev \
-  --justification "Cost optimization" \
-  --approved-by "Security Team"
+# Run security scan on modules
+checkov --config-file .checkov.yml --directory modules
 ```
 
 ### Documentation

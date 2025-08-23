@@ -1,0 +1,20 @@
+# Development Environment - Terraform Variables Example
+# Copy this file to terraform.tfvars.local for local development
+# Or use the deployment script to load values from config/dev.env
+
+# === CORE PROJECT CONFIGURATION ===
+project_name = "terraform-nextjs-infrastructure"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+# === DOMAIN CONFIGURATION ===
+# Update these values for your domain
+domain_name = "dev.yourdomain.com"
+root_domain = "yourdomain.com"
+
+# === TAGGING CONFIGURATION ===
+cost_center = "development"
+owner       = "dev-team"
+
+# Additional variables are defined in terraform.tfvars
+# This file shows the minimum required variables for customization
