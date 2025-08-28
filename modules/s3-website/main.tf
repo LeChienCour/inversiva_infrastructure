@@ -4,6 +4,9 @@
 
 # Provider requirements are defined in versions.tf
 
+# Data source to get current AWS account ID
+data "aws_caller_identity" "current" {}
+
 # Generate random suffix for unique bucket naming
 resource "random_id" "bucket_suffix" {
   byte_length = 4
@@ -17,7 +20,8 @@ locals {
   storage_class = var.environment == "prod" ? "STANDARD" : "STANDARD_IA"
 
   # Lifecycle transition days based on environment
-  transition_days = var.environment == "prod" ? 30 : 7
+  # AWS requires minimum 30 days for STANDARD_IA transition
+  transition_days = var.environment == "prod" ? 30 : 30
   expiration_days = var.environment == "prod" ? 365 : 90
 
   common_tags = merge(var.tags, {
@@ -229,6 +233,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "website" {
     id     = "website_lifecycle"
     status = "Enabled"
 
+    # Apply to all objects in the bucket
+    filter {}
+
     # Transition current versions to IA storage class
     transition {
       days          = local.transition_days
@@ -263,6 +270,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "website" {
     content {
       id     = "cleanup_old_versions"
       status = "Enabled"
+
+      # Apply to all objects in the bucket
+      filter {}
 
       noncurrent_version_transition {
         noncurrent_days = local.transition_days

@@ -14,7 +14,7 @@ locals {
   # Environment-specific configurations for cost optimization
   # Use explicit price_class if provided, otherwise use environment-based defaults
   price_class = var.price_class != null ? var.price_class : (var.environment == "prod" ? "PriceClass_200" : "PriceClass_100")
-  
+
   # Next.js optimized cache behaviors
   default_cache_behavior = {
     compress               = true
@@ -22,7 +22,7 @@ locals {
     allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "S3-${var.s3_bucket_domain_name}"
-    
+
     forwarded_values = {
       query_string = false
       cookies = {
@@ -30,10 +30,10 @@ locals {
       }
       headers = []
     }
-    
+
     min_ttl     = 0
     default_ttl = local.cost_optimized_ttls.default_ttl
-    max_ttl     = 86400   # 1 day (cost-optimized)
+    max_ttl     = 86400 # 1 day (cost-optimized)
   }
 
   # Security headers for Next.js applications
@@ -49,9 +49,9 @@ locals {
   # Cost optimization settings
   cost_optimized_ttls = {
     # Shorter TTLs for better cost control vs performance balance
-    default_ttl = var.environment == "prod" ? 3600 : 1800    # 1 hour prod, 30 min dev
+    default_ttl = var.environment == "prod" ? 3600 : 1800      # 1 hour prod, 30 min dev
     static_ttl  = var.environment == "prod" ? 31536000 : 86400 # 1 year prod, 1 day dev
-    media_ttl   = var.environment == "prod" ? 86400 : 3600   # 1 day prod, 1 hour dev
+    media_ttl   = var.environment == "prod" ? 86400 : 3600     # 1 day prod, 1 hour dev
   }
 
   common_tags = merge(var.tags, {
@@ -97,17 +97,17 @@ resource "aws_cloudfront_distribution" "main" {
     target_origin_id       = local.default_cache_behavior.target_origin_id
     viewer_protocol_policy = local.default_cache_behavior.viewer_protocol_policy
     compress               = local.default_cache_behavior.compress
-    
+
     allowed_methods = local.default_cache_behavior.allowed_methods
     cached_methods  = local.default_cache_behavior.cached_methods
 
     forwarded_values {
       query_string = local.default_cache_behavior.forwarded_values.query_string
-      
+
       cookies {
         forward = local.default_cache_behavior.forwarded_values.cookies.forward
       }
-      
+
       headers = local.default_cache_behavior.forwarded_values.headers
     }
 
@@ -125,14 +125,14 @@ resource "aws_cloudfront_distribution" "main" {
     target_origin_id       = "S3-${var.s3_bucket_domain_name}"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
-    
+
     allowed_methods = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
     cached_methods  = ["GET", "HEAD"]
 
     forwarded_values {
       query_string = true
       headers      = ["Authorization", "CloudFront-Forwarded-Proto"]
-      
+
       cookies {
         forward = "all"
       }
@@ -149,13 +149,13 @@ resource "aws_cloudfront_distribution" "main" {
     target_origin_id       = "S3-${var.s3_bucket_domain_name}"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
-    
+
     allowed_methods = ["GET", "HEAD"]
     cached_methods  = ["GET", "HEAD"]
 
     forwarded_values {
       query_string = false
-      
+
       cookies {
         forward = "none"
       }
@@ -166,27 +166,50 @@ resource "aws_cloudfront_distribution" "main" {
     max_ttl     = local.cost_optimized_ttls.static_ttl
   }
 
-  # Images and media cache behavior
+  # Images cache behavior
   ordered_cache_behavior {
-    path_pattern           = "*.{jpg,jpeg,png,gif,ico,svg,webp,avif}"
+    path_pattern           = "/images/*"
     target_origin_id       = "S3-${var.s3_bucket_domain_name}"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
-    
+
     allowed_methods = ["GET", "HEAD"]
     cached_methods  = ["GET", "HEAD"]
 
     forwarded_values {
       query_string = false
-      
+
       cookies {
         forward = "none"
       }
     }
 
-    min_ttl     = 3600     # 1 hour minimum
+    min_ttl     = 3600 # 1 hour minimum
     default_ttl = local.cost_optimized_ttls.media_ttl
-    max_ttl     = 604800   # 1 week maximum
+    max_ttl     = 604800 # 1 week maximum
+  }
+
+  # Media files cache behavior
+  ordered_cache_behavior {
+    path_pattern           = "/media/*"
+    target_origin_id       = "S3-${var.s3_bucket_domain_name}"
+    viewer_protocol_policy = "redirect-to-https"
+    compress               = true
+
+    allowed_methods = ["GET", "HEAD"]
+    cached_methods  = ["GET", "HEAD"]
+
+    forwarded_values {
+      query_string = false
+
+      cookies {
+        forward = "none"
+      }
+    }
+
+    min_ttl     = 3600 # 1 hour minimum
+    default_ttl = local.cost_optimized_ttls.media_ttl
+    max_ttl     = 604800 # 1 week maximum
   }
 
   # Geographic restrictions
@@ -203,7 +226,7 @@ resource "aws_cloudfront_distribution" "main" {
     acm_certificate_arn      = var.acm_certificate_arn
     ssl_support_method       = var.acm_certificate_arn != null ? "sni-only" : null
     minimum_protocol_version = var.acm_certificate_arn != null ? var.minimum_tls_version : null
-    
+
     # Use CloudFront default certificate when no ACM certificate is provided
     cloudfront_default_certificate = var.acm_certificate_arn == null ? true : null
   }
@@ -266,23 +289,23 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
   # CORS configuration for Next.js applications
   cors_config {
     access_control_allow_credentials = var.cors_allow_credentials
-    
+
     access_control_allow_headers {
       items = var.cors_allow_headers
     }
-    
+
     access_control_allow_methods {
       items = var.cors_allow_methods
     }
-    
+
     access_control_allow_origins {
       items = var.cors_allow_origins
     }
-    
+
     access_control_expose_headers {
       items = var.cors_expose_headers
     }
-    
+
     access_control_max_age_sec = var.cors_max_age_seconds
     origin_override            = true
   }

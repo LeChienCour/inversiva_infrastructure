@@ -104,6 +104,9 @@ module "route53_acm" {
   health_check_failure_threshold = local.environment_config.route53_config.health_check_failure_threshold
   health_check_request_interval  = local.environment_config.route53_config.health_check_request_interval
 
+  # Override cost optimization to allow hosted zone creation in dev
+  cost_optimization_enabled = false
+
   tags = local.common_tags
 }
 
@@ -138,7 +141,7 @@ module "s3_website" {
   project_name = var.project_name
   environment  = var.environment
 
-  # Placeholder ARN - will be updated after CloudFront distribution is created
+  # Placeholder ARN - will be updated by separate resource
   cloudfront_distribution_arn = "arn:aws:cloudfront::123456789012:distribution/PLACEHOLDER"
 
   enable_versioning          = local.environment_config.s3_config.enable_versioning
@@ -212,4 +215,135 @@ module "monitoring" {
   enable_cost_alarms         = true
 
   depends_on = [module.cloudfront, module.s3_website, module.s3_content, module.cognito]
+}
+
+# DNS Records for CloudFront Distribution
+# These are created separately to avoid circular dependencies
+resource "aws_route53_record" "domain_a_record" {
+  zone_id = module.route53_acm.hosted_zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = module.cloudfront.distribution_domain_name
+    zone_id                = module.cloudfront.distribution_hosted_zone_id
+    evaluate_target_health = false
+  }
+
+  depends_on = [module.cloudfront, module.route53_acm]
+}
+
+# IPv6 AAAA record (if enabled)
+resource "aws_route53_record" "domain_aaaa_record" {
+  count = local.environment_config.route53_config.enable_ipv6 ? 1 : 0
+
+  zone_id = module.route53_acm.hosted_zone_id
+  name    = var.domain_name
+  type    = "AAAA"
+
+  alias {
+    name                   = module.cloudfront.distribution_domain_name
+    zone_id                = module.cloudfront.distribution_hosted_zone_id
+    evaluate_target_health = false
+  }
+
+  depends_on = [module.cloudfront, module.route53_acm]
+}
+
+# Data source to get current AWS account ID
+data "aws_caller_identity" "current" {}
+
+# Updated S3 bucket policy with deployment access and correct CloudFront ARN
+resource "aws_s3_bucket_policy" "website_deployment" {
+  bucket = module.s3_website.bucket_name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowCloudFrontServicePrincipal"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudfront.amazonaws.com"
+        }
+        Action   = "s3:GetObject"
+        Resource = "${module.s3_website.bucket_arn}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = module.cloudfront.distribution_arn
+          }
+        }
+      },
+      {
+        Sid    = "AllowDeploymentAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action = [
+          "s3:PutObject",
+          "s3:PutObjectAcl",
+          "s3:GetObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          module.s3_website.bucket_arn,
+          "${module.s3_website.bucket_arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "true"
+          }
+        }
+      },
+      {
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          module.s3_website.bucket_arn,
+          "${module.s3_website.bucket_arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      },
+      {
+        Sid       = "DenyUnencryptedObjectUploads"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${module.s3_website.bucket_arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "AES256"
+          }
+        }
+      },
+      {
+        Sid       = "DenyPublicReadACL"
+        Effect    = "Deny"
+        Principal = "*"
+        Action = [
+          "s3:PutObject",
+          "s3:PutObjectAcl"
+        ]
+        Resource = "${module.s3_website.bucket_arn}/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = [
+              "public-read",
+              "public-read-write",
+              "authenticated-read"
+            ]
+          }
+        }
+      }
+    ]
+  })
+
+  depends_on = [module.cloudfront, module.s3_website]
 }

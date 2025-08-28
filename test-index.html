@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inmersa.mx - Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .status {
+            background: #e8f5e8;
+            border: 1px solid #4caf50;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        ul {
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎉 Inmersa.mx Infrastructure Deployed Successfully!</h1>
+        
+        <div class="status">
+            <strong>✅ Status:</strong> Your Terraform Next.js infrastructure is now live and working correctly!
+        </div>
+
+        <div class="info">
+            <h3>🏗️ Infrastructure Components Deployed:</h3>
+            <ul>
+                <li><strong>Route53 DNS:</strong> Custom domain configured with SSL certificate</li>
+                <li><strong>CloudFront CDN:</strong> Global content delivery network</li>
+                <li><strong>S3 Website Hosting:</strong> Static website storage</li>
+                <li><strong>S3 Content Storage:</strong> Private content with Cognito access</li>
+                <li><strong>AWS Cognito:</strong> User authentication system</li>
+                <li><strong>CloudWatch Monitoring:</strong> Performance and cost monitoring</li>
+            </ul>
+        </div>
+
+        <div class="info">
+            <h3>🚀 Next Steps:</h3>
+            <ul>
+                <li>Deploy your Next.js application build to the S3 bucket</li>
+                <li>Configure your application to use the Cognito authentication</li>
+                <li>Set up your CI/CD pipeline for automated deployments</li>
+                <li>Monitor costs and performance through CloudWatch</li>
+            </ul>
+        </div>
+
+        <div class="info">
+            <p><strong>Environment:</strong> Development</p>
+            <p><strong>Domain:</strong> inmersa.mx</p>
+            <p><strong>Deployment Date:</strong> <script>document.write(new Date().toLocaleDateString());</script></p>
+        </div>
+    </div>
+</body>
+</html>

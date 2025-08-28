@@ -42,6 +42,12 @@ variable "mfa_configuration" {
   }
 }
 
+variable "enable_software_token_mfa" {
+  description = "Enable software token (TOTP) MFA method"
+  type        = bool
+  default     = true
+}
+
 variable "explicit_auth_flows" {
   description = "List of authentication flows for the user pool client"
   type        = list(string)

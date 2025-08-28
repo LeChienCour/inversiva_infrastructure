@@ -107,7 +107,7 @@ resource "aws_cloudwatch_dashboard" "infrastructure" {
           stacked = false
           region  = data.aws_region.current.name
           title   = "S3 Storage Usage"
-          period  = 86400  # Daily
+          period  = 86400 # Daily
         }
       },
       {
@@ -126,7 +126,7 @@ resource "aws_cloudwatch_dashboard" "infrastructure" {
           stacked = false
           region  = data.aws_region.current.name
           title   = "S3 Object Count"
-          period  = 86400  # Daily
+          period  = 86400 # Daily
         }
       }
     ]
@@ -135,11 +135,12 @@ resource "aws_cloudwatch_dashboard" "infrastructure" {
 
 # Cost Budget for monitoring spending
 resource "aws_budgets_budget" "cost_budget" {
-  name         = "${var.project_name}-${var.environment}-budget"
-  budget_type  = "COST"
-  limit_amount = var.monthly_budget_limit
-  limit_unit   = "USD"
-  time_unit    = "MONTHLY"
+  count             = length(var.alert_email_addresses) > 0 ? 1 : 0
+  name              = "${var.project_name}-${var.environment}-budget"
+  budget_type       = "COST"
+  limit_amount      = var.monthly_budget_limit
+  limit_unit        = "USD"
+  time_unit         = "MONTHLY"
   time_period_start = formatdate("YYYY-MM-01_00:00", timestamp())
 
   cost_filter {
@@ -152,16 +153,16 @@ resource "aws_budgets_budget" "cost_budget" {
 
   notification {
     comparison_operator        = "GREATER_THAN"
-    threshold                 = 80
-    threshold_type            = "PERCENTAGE"
-    notification_type         = "ACTUAL"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
     subscriber_email_addresses = var.alert_email_addresses
   }
 
   notification {
     comparison_operator        = "GREATER_THAN"
-    threshold                 = 100
-    threshold_type            = "PERCENTAGE"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
     notification_type          = "FORECASTED"
     subscriber_email_addresses = var.alert_email_addresses
   }
@@ -171,16 +172,16 @@ resource "aws_budgets_budget" "cost_budget" {
 resource "aws_cloudtrail" "security_trail" {
   count                         = var.enable_cloudtrail ? 1 : 0
   name                          = "${var.project_name}-${var.environment}-security-trail"
-  s3_bucket_name               = aws_s3_bucket.cloudtrail_logs[0].bucket
-  cloud_watch_logs_group_arn   = "${aws_cloudwatch_log_group.cloudtrail_log_group[0].arn}:*"
-  cloud_watch_logs_role_arn    = aws_iam_role.cloudtrail_logs_role[0].arn
+  s3_bucket_name                = aws_s3_bucket.cloudtrail_logs[0].bucket
+  cloud_watch_logs_group_arn    = "${aws_cloudwatch_log_group.cloudtrail_log_group[0].arn}:*"
+  cloud_watch_logs_role_arn     = aws_iam_role.cloudtrail_logs_role[0].arn
   include_global_service_events = true
-  is_multi_region_trail        = true
-  enable_logging               = true
+  is_multi_region_trail         = true
+  enable_logging                = true
 
   event_selector {
-    read_write_type                 = "All"
-    include_management_events       = true
+    read_write_type                  = "All"
+    include_management_events        = true
     exclude_management_event_sources = []
 
     data_resource {
@@ -366,15 +367,15 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_error_rate" {
   count               = var.enable_performance_alarms ? 1 : 0
   alarm_name          = "${var.project_name}-${var.environment}-cloudfront-error-rate"
   comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = "3"  # Longer evaluation to reduce false positives
+  evaluation_periods  = "3" # Longer evaluation to reduce false positives
   metric_name         = "4xxErrorRate"
   namespace           = "AWS/CloudFront"
-  period              = "900"  # 15 minutes instead of 5 to reduce costs
+  period              = "900" # 15 minutes instead of 5 to reduce costs
   statistic           = "Average"
-  threshold           = "10"   # Higher threshold to reduce noise
+  threshold           = "10" # Higher threshold to reduce noise
   alarm_description   = "Critical CloudFront error rate monitoring"
   alarm_actions       = var.enable_sns_alerts ? [aws_sns_topic.alerts.arn] : []
-  treat_missing_data  = "notBreaching"  # Don't alarm on missing data
+  treat_missing_data  = "notBreaching" # Don't alarm on missing data
 
   dimensions = {
     DistributionId = var.cloudfront_distribution_id
@@ -395,7 +396,7 @@ resource "aws_cloudwatch_metric_alarm" "high_cost_alert" {
   evaluation_periods  = "1"
   metric_name         = "EstimatedCharges"
   namespace           = "AWS/Billing"
-  period              = "86400"  # Daily check
+  period              = "86400" # Daily check
   statistic           = "Maximum"
   threshold           = var.cost_alarm_threshold
   alarm_description   = "Daily cost monitoring alarm"
@@ -421,7 +422,7 @@ resource "aws_cloudwatch_metric_alarm" "s3_4xx_errors" {
   evaluation_periods  = "2"
   metric_name         = "4xxErrors"
   namespace           = "AWS/S3"
-  period              = "900"  # 15 minutes
+  period              = "900" # 15 minutes
   statistic           = "Sum"
   threshold           = "10"
   alarm_description   = "S3 4xx error rate monitoring"
@@ -447,9 +448,9 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_cache_hit_rate" {
   evaluation_periods  = "3"
   metric_name         = "CacheHitRate"
   namespace           = "AWS/CloudFront"
-  period              = "900"  # 15 minutes
+  period              = "900" # 15 minutes
   statistic           = "Average"
-  threshold           = "80"   # Alert if cache hit rate drops below 80%
+  threshold           = "80" # Alert if cache hit rate drops below 80%
   alarm_description   = "CloudFront cache hit rate monitoring"
   alarm_actions       = var.enable_sns_alerts ? [aws_sns_topic.alerts.arn] : []
   treat_missing_data  = "notBreaching"

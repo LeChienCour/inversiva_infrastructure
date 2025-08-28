@@ -53,6 +53,10 @@ variable "lifecycle_transition_glacier_days" {
     condition     = var.lifecycle_transition_glacier_days >= 0
     error_message = "Lifecycle transition to Glacier days must be 0 or greater."
   }
+  validation {
+    condition     = var.lifecycle_transition_glacier_days == 0 || var.lifecycle_transition_ia_days == 0 || var.lifecycle_transition_glacier_days > var.lifecycle_transition_ia_days
+    error_message = "Glacier transition days must be greater than Standard-IA transition days when both are enabled."
+  }
 }
 
 variable "lifecycle_noncurrent_version_expiration_days" {

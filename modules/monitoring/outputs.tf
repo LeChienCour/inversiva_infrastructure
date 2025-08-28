@@ -12,7 +12,7 @@ output "dashboard_url" {
 
 output "budget_name" {
   description = "Name of the cost budget"
-  value       = aws_budgets_budget.cost_budget.name
+  value       = length(var.alert_email_addresses) > 0 ? aws_budgets_budget.cost_budget[0].name : null
 }
 
 output "cloudtrail_arn" {

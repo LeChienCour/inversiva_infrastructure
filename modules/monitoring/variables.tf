@@ -42,7 +42,7 @@ variable "content_bucket_arn" {
 variable "alert_email_addresses" {
   description = "List of email addresses to receive alerts"
   type        = list(string)
-  default     = []
+  default     = ["cheval.diego@gmail.com"]
 }
 
 variable "monthly_budget_limit" {

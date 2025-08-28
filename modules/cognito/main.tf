@@ -15,6 +15,14 @@ resource "aws_cognito_user_pool" "main" {
   # MFA configuration based on environment
   mfa_configuration = var.mfa_configuration
 
+  # Software token MFA configuration (TOTP)
+  dynamic "software_token_mfa_configuration" {
+    for_each = var.mfa_configuration != "OFF" && var.enable_software_token_mfa ? [1] : []
+    content {
+      enabled = true
+    }
+  }
+
   # Account recovery settings
   account_recovery_setting {
     recovery_mechanism {

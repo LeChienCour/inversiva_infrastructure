@@ -36,7 +36,17 @@ output "hosted_zone_name_servers" {
 
 output "primary_domain_record_fqdn" {
   description = "FQDN of the primary domain A record"
-  value       = module.route53_acm.primary_domain_record_fqdn
+  value       = aws_route53_record.domain_a_record.fqdn
+}
+
+output "domain_a_record_name" {
+  description = "Name of the domain A record"
+  value       = aws_route53_record.domain_a_record.name
+}
+
+output "domain_aaaa_record_name" {
+  description = "Name of the domain AAAA record (if enabled)"
+  value       = length(aws_route53_record.domain_aaaa_record) > 0 ? aws_route53_record.domain_aaaa_record[0].name : null
 }
 
 output "all_domain_names" {

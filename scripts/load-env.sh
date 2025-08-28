@@ -588,9 +588,10 @@ route53_health_check_request_interval  = $ROUTE53_HEALTH_CHECK_REQUEST_INTERVAL
 
 # CORS Configuration
 cors_allow_credentials = $CORS_ALLOW_CREDENTIALS
-cors_allow_headers     = "$CORS_ALLOW_HEADERS"
-cors_allow_methods     = "$CORS_ALLOW_METHODS"
+cors_allow_headers     = [$(echo "$CORS_ALLOW_HEADERS" | sed 's/,/", "/g' | sed 's/^/"/' | sed 's/$/"/')]
+cors_allow_methods     = [$(echo "$CORS_ALLOW_METHODS" | sed 's/,/", "/g' | sed 's/^/"/' | sed 's/$/"/')]
 cors_allow_origins     = [$(echo "$CORS_ALLOW_ORIGINS" | sed 's/,/", "/g' | sed 's/^/"/' | sed 's/$/"/')]
+$(if [ -n "$CORS_EXPOSE_HEADERS" ]; then echo "cors_expose_headers    = [$(echo "$CORS_EXPOSE_HEADERS" | sed 's/,/", "/g' | sed 's/^/"/' | sed 's/$/"/')]"; fi)
 cors_max_age_seconds   = $CORS_MAX_AGE_SECONDS
 
 # Common Tags

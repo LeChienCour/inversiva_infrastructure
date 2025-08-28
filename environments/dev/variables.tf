@@ -170,7 +170,7 @@ variable "cognito_allowed_oauth_scopes" {
 variable "cognito_callback_urls" {
   description = "List of allowed callback URLs for OAuth"
   type        = list(string)
-  default     = ["http://localhost:3000/auth/callback", "https://dev.placeholder.mx/auth/callback"]
+  default     = ["http://localhost:3000/auth/callback", "https://dev.inmersa.mx/auth/callback"]
   validation {
     condition = alltrue([
       for url in var.cognito_callback_urls : can(regex("^https?://", url))
@@ -182,7 +182,7 @@ variable "cognito_callback_urls" {
 variable "cognito_logout_urls" {
   description = "List of allowed logout URLs for OAuth"
   type        = list(string)
-  default     = ["http://localhost:3000/auth/logout", "https://dev.placeholder.mx/auth/logout"]
+  default     = ["http://localhost:3000/auth/logout", "https://inmersa.mx/auth/logout"]
   validation {
     condition = alltrue([
       for url in var.cognito_logout_urls : can(regex("^https?://", url))
@@ -430,7 +430,7 @@ variable "cors_allow_methods" {
 variable "cors_allow_origins" {
   description = "List of allowed origins for CORS"
   type        = list(string)
-  default     = ["http://localhost:3000", "https://dev.placeholder.mx"]
+  default     = ["http://localhost:3000", "https://inmersa.mx"]
   validation {
     condition = alltrue([
       for origin in var.cors_allow_origins : can(regex("^https?://", origin))
@@ -447,4 +447,14 @@ variable "cors_max_age_seconds" {
     condition     = var.cors_max_age_seconds >= 0 && var.cors_max_age_seconds <= 86400
     error_message = "CORS max age must be between 0 and 86400 seconds (24 hours)."
   }
+}
+
+variable "common_tags" {
+  description = "Common tags for all resources"
+  type        = map(string)
+  default = {
+    Environment = "dev"
+    Project     = "placeholder.mx"
+  }
+
 }
